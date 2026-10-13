@@ -369,7 +369,7 @@ test('Gemini：1分あたりの上限は指定の時間待ってやり直し、1
 
   const perDay = [429, { error: { code: 429, status: 'RESOURCE_EXHAUSTED', message: 'Quota exceeded',
     details: [{ violations: [{ quotaId: 'GenerateRequestsPerDayPerProjectPerModel-FreeTier' }] }] } }];
-  const d = geminiCtx(() => perDay);
+  const d = geminiCtx(() => perDay, { GEMINI_FALLBACK_MODELS: 'off' });
   assert.throws(() => d.c.parseJobText('x'), /今日の無料枠を使い切りました/);
   assert.strictEqual(d.calls.length, 1);
 });
@@ -377,7 +377,7 @@ test('Gemini：1分あたりの上限は指定の時間待ってやり直し、1
 test('Gemini：APIキーの誤り・モデル名の誤り・断られた・長すぎる・未設定', () => {
   const bad = [400, { error: { code: 400, message: 'API key not valid. Please pass a valid API key.', status: 'INVALID_ARGUMENT' } }];
   assert.throws(() => geminiCtx(() => bad).c.parseJobText('x'), /GEMINI_API_KEY/);
-  assert.throws(() => geminiCtx(() => [404, { error: { code: 404, message: 'models/x is not found' } }], { GEMINI_MODEL: 'x' }).c.parseJobText('x'), /モデル「x」/);
+  assert.throws(() => geminiCtx(() => [404, { error: { code: 404, message: 'models/x is not found' } }], { GEMINI_MODEL: 'x', GEMINI_FALLBACK_MODELS: 'off' }).c.parseJobText('x'), /モデル「x」/);
   assert.throws(() => geminiCtx(() => [200, { promptFeedback: { blockReason: 'SAFETY' } }]).c.parseJobText('x'), /断りました/);
   assert.throws(() => geminiCtx(() => [200, { candidates: [{ finishReason: 'MAX_TOKENS', content: { parts: [] } }] }]).c.parseJobText('x'), /分けて/);
   assert.throws(() => geminiCtx(() => gemOk({ cases: [] })).c.parseJobText('x'), /読み取れませんでした/);
@@ -852,4 +852,58 @@ test('LINE の送信エラーの理由を日本語で示す', () => {
   assert.match(ctx.lineErrorText_(500, 'oops'), /500：oops/);
   // 実際に起きたエラー（画像のプレビューの項目名の誤り）
   assert.match(e(400, { message: 'The request body has 1 error(s)', details: [{ message: 'May not be empty', property: 'messages[1].previewImageUrl' }] }), /画像を送れませんでした/);
+});
+
+test('Gemini が混み合っている（503）：5秒・15秒待ってやり直し、だめなら予備のモデルで読む', () => {
+  const busy = [503, { error: { code: 503, message: 'The model is overloaded. Please try again later.', status: 'UNAVAILABLE' } }];
+  // 2回目のやり直しで成功
+  const a = geminiCtx((b, n) => n < 3 ? busy : gemOk({ cases: [kobe] }));
+  const ra = plain(a.c.parseJobText('x'));
+  assert.strictEqual(ra.cases.length, 1);
+  assert.strictEqual(ra.note, '');
+  assert.deepStrictEqual(a.sleeps, [5000, 15000]);
+
+  // 最初のモデルはずっと混雑 → 予備のモデル（gemini-flash-lite-latest）で読む
+  const b = geminiCtx((body, n) => n <= 3 ? busy : gemOk({ cases: [kobe] }));
+  const rb = plain(b.c.parseJobText('x'));
+  assert.strictEqual(rb.cases.length, 1);
+  assert.deepStrictEqual(b.calls.map((x) => x.url.replace(/.*models\//, '').replace(/:.*/, '')),
+    ['gemini-flash-latest', 'gemini-flash-latest', 'gemini-flash-latest', 'gemini-flash-lite-latest']);
+  assert.match(rb.note, /gemini-flash-lite-latest で読み取りました/);
+
+  // すべて混雑 → わかりやすいメッセージ
+  const c = geminiCtx(() => busy);
+  assert.throws(() => c.c.parseJobText('x'), /Gemini（Google）が混み合っていて読み取れませんでした（AIが混み合っています（503））。数分おいてから/);
+  assert.strictEqual(c.calls.length, 6);
+
+  // 今日の無料枠を使い切った → 待たずに予備のモデルへ
+  const perDay = [429, { error: { code: 429, status: 'RESOURCE_EXHAUSTED', message: 'Quota exceeded', details: [{ violations: [{ quotaId: 'GenerateRequestsPerDayPerProjectPerModel-FreeTier' }] }] } }];
+  const d = geminiCtx((body, n) => n === 1 ? perDay : gemOk({ cases: [kobe] }));
+  assert.strictEqual(plain(d.c.parseJobText('x')).cases.length, 1);
+  assert.deepStrictEqual(d.sleeps, []);
+
+  // 予備のモデルの指定
+  assert.deepStrictEqual(plain(d.c.geminiFallbackModels_('')), ['gemini-flash-lite-latest']);
+  assert.deepStrictEqual(plain(d.c.geminiFallbackModels_('off')), []);
+  assert.deepStrictEqual(plain(d.c.geminiFallbackModels_('gemini-2.5-flash, gemini-2.5-flash-lite')), ['gemini-2.5-flash', 'gemini-2.5-flash-lite']);
+});
+
+test('Gemini がすべて混み合っていても、Claude の APIキーがあれば Claude で読む', () => {
+  const busy = [503, { error: { code: 503, message: 'overloaded' } }];
+  const { c } = geminiCtx(() => busy, { ANTHROPIC_API_KEY: 'sk-test' });
+  const claudeCalls = [];
+  c.UrlFetchApp.fetchAll = (reqs) => reqs.map((r) => {
+    const body = JSON.parse(r.payload);
+    claudeCalls.push(body);
+    const ask = body.messages[0].content[1].text;
+    const [code, json] = /すべて挙げて/.test(ask) ? okText({ cases: [{ label: '①神戸港' }] }) : okText(kobe);
+    return { getResponseCode: () => code, getContentText: () => JSON.stringify(json) };
+  });
+  const r = plain(c.parseJobText('x'));
+  assert.strictEqual(r.cases.length, 1);
+  assert.match(r.note, /Claude で読み取りました/);
+  assert.strictEqual(claudeCalls.length, 2);
+  // APIキーの誤りなど、混雑以外のエラーでは Claude に切り替えない
+  const bad = geminiCtx(() => [400, { error: { code: 400, message: 'API key not valid.' } }], { ANTHROPIC_API_KEY: 'sk-test' });
+  assert.throws(() => bad.c.parseJobText('x'), /GEMINI_API_KEY/);
 });

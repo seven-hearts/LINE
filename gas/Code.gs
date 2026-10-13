@@ -16,6 +16,8 @@ var DEFAULT_PRIVACY_POLICY_URL = 'https://seven-hearts.github.io/LINE/liff/priva
 var DEFAULT_CLAUDE_MODEL = 'claude-opus-5-5';
 /** 案件の読み取りに使う Gemini のモデル（最新の Flash を指す名前）。スクリプト プロパティ GEMINI_MODEL で変更できる */
 var DEFAULT_GEMINI_MODEL = 'gemini-flash-latest';
+/** 予備のモデル（軽量版。混雑しにくく、無料枠も別に数えられる）。スクリプト プロパティ GEMINI_FALLBACK_MODELS で変更できる */
+var DEFAULT_GEMINI_FALLBACK_MODELS = ['gemini-flash-lite-latest'];
 
 function getConfig_() {
   var p = PropertiesService.getScriptProperties().getProperties();
@@ -36,11 +38,20 @@ function getConfig_() {
     claudeModel: (p.CLAUDE_MODEL || '').trim() || DEFAULT_CLAUDE_MODEL,
     geminiApiKey: (p.GEMINI_API_KEY || '').trim(),
     geminiModel: (p.GEMINI_MODEL || '').trim() || DEFAULT_GEMINI_MODEL,
+    // Gemini が混み合っているときなどに切り替える予備のモデル（カンマ区切り。off なら切り替えない）
+    geminiFallbackModels: geminiFallbackModels_(p.GEMINI_FALLBACK_MODELS),
     // 読み取りに使う AI。AI_PROVIDER（gemini / claude）がなければ、APIキーが入っているほうを使う
     aiProvider: aiProvider_(p),
     // 入金予定月 = 売上計上月の何か月後か（取引先ごとに違う場合はシートで直してください）
     paymentMonthsAfter: /^\d+$/.test((p.PAYMENT_MONTHS_AFTER || '').trim()) ? +p.PAYMENT_MONTHS_AFTER.trim() : 1
   };
+}
+
+function geminiFallbackModels_(v) {
+  v = (v || '').trim();
+  if (v.toLowerCase() === 'off') return [];
+  if (!v) return DEFAULT_GEMINI_FALLBACK_MODELS.slice();
+  return v.split(',').map(function (m) { return m.trim(); }).filter(Boolean);
 }
 
 function aiProvider_(p) {
@@ -81,7 +92,7 @@ function doPost(e) {
  * コードの版。コードを変えるたびに更新する。
  * checkSettings がウェブアプリ（デプロイ済み）の版と比べて、デプロイし忘れを見つける。
  */
-var APP_VERSION = '2026-10-13.7';
+var APP_VERSION = '2026-10-13.8';
 
 function doGet() {
   return json_({ ok: true, service: 'sevenhearts-staff-registration', version: APP_VERSION });

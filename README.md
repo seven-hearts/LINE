@@ -352,6 +352,9 @@ Googleスプレッドシートに自動で保存するツールです。日雇�
 Gemini の無料枠について
 - 1分・1日に使える回数に上限があります（モデルやGoogleの方針で変わります。[AI Studio](https://aistudio.google.com/) の「使用状況」で確認できます）。1日の上限に達すると「今日の無料枠を使い切りました」と表示され、翌日（日本時間の午後4〜5時ごろにリセット）まで使えません
 - モデルは最新の Flash（`gemini-flash-latest`）を使います。変えるときは `GEMINI_MODEL` にモデル名を入れてください
+- Gemini が混み合っている（「503」など）ときは、5秒・15秒待ってやり直します。それでもだめなときや、今日の無料枠を使い切ったときは、予備のモデル（軽量版の `gemini-flash-lite-latest`。無料枠も別に数えられます）で読み取ります。予備のモデルで読んだときは、確認画面にそう表示されます（読み取りの精度が少し下がることがあるので、よく確認してください）
+  - 予備のモデルは `GEMINI_FALLBACK_MODELS` で変えられます（カンマ区切りで複数。`off` で切り替えない）
+  - `ANTHROPIC_API_KEY` も入れておくと、Gemini がすべてだめなときに Claude で読み取ります（Claude の利用料がかかります）
 - 依頼文には取引先の案件内容や現場担当者の連絡先が入るため、取引先との守秘義務の範囲で使ってください。気になる場合は Google AI Studio で課金を有効にする（有料枠）か、Claude に切り替えてください
 
 Claude に切り替えるときは、`ANTHROPIC_API_KEY` を入れて `AI_PROVIDER` を `claude` にします（`GEMINI_API_KEY` は残したままでかまいません）。
@@ -411,6 +414,7 @@ Claude に切り替えるときは、`ANTHROPIC_API_KEY` を入れて `AI_PROVID
 | `PRIVACY_POLICY_URL` | 自社のプライバシーポリシーのURL（任意だが推奨） |
 | `GEMINI_API_KEY` | 案件の取り込みに使う Gemini の APIキー（無料枠あり。「AIの切り替え」参照） |
 | `GEMINI_MODEL` | Gemini のモデル（任意。初期値 `gemini-flash-latest`） |
+| `GEMINI_FALLBACK_MODELS` | Gemini が混み合っているときに使う予備のモデル（任意。初期値 `gemini-flash-lite-latest`。`off` で使わない） |
 | `ANTHROPIC_API_KEY` | Claude で読み取る場合の APIキー（任意。「AIの切り替え」参照） |
 | `CLAUDE_MODEL` | Claude のモデル（任意。初期値 `claude-opus-5-5`。`claude-sonnet-5-5` にすると費用はおよそ半分） |
 | `AI_PROVIDER` | 読み取りに使う AI（任意。`gemini` か `claude`。なければ APIキーが入っているほう） |

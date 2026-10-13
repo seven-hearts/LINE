@@ -288,10 +288,10 @@ function geminiResult_(res, model) {
     }
     if (code === 400 && /response_?json_?schema|schema/i.test(msg)) return { error: msg, noSchema: true };
     if (code === 403) return { error: 'Gemini の APIキーに使う権限がありません（' + msg + '）' };
-    if (code === 404) return { error: 'Gemini のモデル「' + model + '」が見つかりません。スクリプト プロパティ GEMINI_MODEL を確認してください' };
+    if (code === 404) return { error: 'Gemini のモデル「' + model + '」が見つかりません。スクリプト プロパティ GEMINI_MODEL を確認してください', nextModel: true };
     if (code === 429) {
       if (/per ?day|PerDay|daily/i.test(msg + JSON.stringify(err.details || ''))) {
-        return { error: 'Gemini の今日の無料枠を使い切りました。明日になると使えます（お急ぎの場合は README の「AIの切り替え」を参照）' };
+        return { error: 'Gemini の今日の無料枠を使い切りました。明日（日本時間の夕方ごろ）になると使えます（お急ぎの場合は README の「AIの切り替え」を参照）', nextModel: true };
       }
       // 1分あたりの上限：指定された時間だけ待ってやり直す
       var wait = 20000;
@@ -299,9 +299,9 @@ function geminiResult_(res, model) {
         var m = /^(\d+(?:\.\d+)?)s$/.exec(d.retryDelay || '');
         if (m) wait = Math.ceil(+m[1] * 1000);
       });
-      return { error: 'Gemini の1分あたりの上限に達しました。1分ほど待ってからもう一度お試しください', retry: true, waitMs: Math.min(wait, 50000) };
+      return { error: 'Gemini の1分あたりの上限に達しました。1分ほど待ってからもう一度お試しください', retry: true, busy: true, waitMs: Math.min(wait, 50000) };
     }
-    if (code >= 500) return { error: 'AIが混み合っています（' + code + '）', retry: true };
+    if (code >= 500) return { error: 'AIが混み合っています（' + code + '）', retry: true, busy: true };
     return { error: 'AIでの読み取りに失敗しました（' + code + '）：' + msg };
   }
   if (body.promptFeedback && body.promptFeedback.blockReason) return { error: 'AIがこの文章の読み取りを断りました。内容を確認してください' };
@@ -321,28 +321,46 @@ function geminiResult_(res, model) {
 
 /**
  * Gemini で依頼文の案件をすべて読む（1回の問い合わせ。無料枠は1日の回数が少ないため）。
- * 混雑・1分あたりの上限のときは待ってやり直す。JSON Schema の指定を受け付けないモデルなら、指示文で形を伝える。
+ * - 混雑（503 など）・1分あたりの上限：待ってやり直す（5秒 → 15秒）
+ * - それでも混雑・今日の無料枠を使い切った・モデルが見つからない：予備のモデル（GEMINI_FALLBACK_MODELS）に切り替える
+ * - JSON Schema の指定を受け付けないモデルなら、指示文で形を伝える
+ * @return {{data: Object, model: string}}
  */
 function askGemini_(text) {
   var cfg = getConfig_();
   if (!cfg.geminiApiKey) throw new Error('Gemini の APIキーが未設定です。スクリプト プロパティ GEMINI_API_KEY を設定してください（README参照）');
-  var withSchema = true;
-  var r = null;
-  for (var attempt = 0; attempt < 3; attempt++) {
-    if (r && r.retry) Utilities.sleep(r.waitMs || 3000);
-    var req = geminiRequest_(cfg, text, withSchema);
-    var res;
-    try {
-      res = UrlFetchApp.fetch(req.url, req.options);
-    } catch (err) {
-      throw new Error('AIの応答に時間がかかりすぎました。案件をいくつかに分けて貼り付けてください（' + err.message + '）');
+  var models = [cfg.geminiModel].concat(cfg.geminiFallbackModels).filter(function (m, i, all) { return m && all.indexOf(m) === i; });
+  var started = Date.now();
+  var waits = [5000, 15000];
+  var last = null;
+  for (var mi = 0; mi < models.length; mi++) {
+    var mcfg = Object.assign({}, cfg, { geminiModel: models[mi] });
+    var withSchema = true;
+    for (var attempt = 0; attempt <= waits.length; attempt++) {
+      var req = geminiRequest_(mcfg, text, withSchema);
+      var res;
+      try {
+        res = UrlFetchApp.fetch(req.url, req.options);
+      } catch (err) {
+        throw new Error('AIの応答に時間がかかりすぎました。案件をいくつかに分けて貼り付けてください（' + err.message + '）');
+      }
+      var r = geminiResult_(res, mcfg.geminiModel);
+      if (r.data) return { data: r.data, model: mcfg.geminiModel };
+      last = r;
+      if (r.noSchema && withSchema) { withSchema = false; attempt--; continue; }
+      if (r.nextModel) break;                 // 今日の無料枠を使い切った・モデルがない → 次のモデル
+      if (!r.retry) throw new Error(r.error); // APIキーの誤り・断られた・長すぎる など
+      // 画面の待ち時間が長くなりすぎないよう、合計4分を超えそうならやめる
+      var wait = Math.max(r.waitMs || 0, waits[attempt] || 0);
+      if (attempt === waits.length || Date.now() - started + wait > 4 * 60000) break;
+      Utilities.sleep(wait);
     }
-    r = geminiResult_(res, cfg.geminiModel);
-    if (r.data) return r.data;
-    if (r.noSchema && withSchema) { withSchema = false; r = { retry: true, waitMs: 1 }; continue; }
-    if (!r.retry) break;
   }
-  throw new Error(r.error);
+  var e = new Error(last && last.busy
+    ? 'Gemini（Google）が混み合っていて読み取れませんでした（' + last.error + '）。数分おいてから、もう一度「読み取る」を押してください'
+    : (last ? last.error : 'AIでの読み取りに失敗しました'));
+  e.busy = !!(last && (last.busy || last.nextModel));
+  throw e;
 }
 
 // ---- 案件の取り込み（JobImport.html から呼ぶ） ----
@@ -366,12 +384,30 @@ function parseJobText(text) {
   if (!text) throw new Error('依頼文を貼り付けてください');
   if (text.length > 30000) throw new Error('文章が長すぎます。案件をいくつかに分けて貼り付けてください');
 
-  if (getConfig_().aiProvider === 'gemini') {
-    var all = (askGemini_(text).cases || []).filter(function (c) { return c && typeof c === 'object'; });
+  var cfg = getConfig_();
+  if (cfg.aiProvider === 'gemini') {
+    var got;
+    try {
+      got = askGemini_(text);
+    } catch (err) {
+      // Gemini が混み合っている・無料枠を使い切ったときは、Claude の APIキーがあれば Claude で読む
+      if (!err.busy || !cfg.anthropicApiKey) throw err;
+      var viaClaude = parseWithClaude_(text);
+      viaClaude.note = 'Gemini が混み合っていたため、Claude で読み取りました';
+      return viaClaude;
+    }
+    var all = (got.data.cases || []).filter(function (c) { return c && typeof c === 'object'; });
     if (!all.length) throw new Error('案件を読み取れませんでした。日程や場所が書かれた依頼文か確認してください');
-    return { cases: all.map(normalizeCase_) };
+    return {
+      cases: all.map(normalizeCase_),
+      note: got.model !== cfg.geminiModel ? 'Gemini（' + cfg.geminiModel + '）が混み合っていた（または無料枠を使い切った）ため、' + got.model + ' で読み取りました' : ''
+    };
   }
+  return parseWithClaude_(text);
+}
 
+/** Claude で読む：案件を数えてから、案件ごとに並列で詳しく読む */
+function parseWithClaude_(text) {
   // 1回目：どんな案件が含まれているか（短い応答なのですぐ終わる）
   var list = askClaude_(text, [{ instruction: jobListPrompt_(), schema: JOB_LIST_SCHEMA, maxTokens: 4000 }])[0];
   var labels = (list.cases || []).map(function (c) { return str_(c.label); }).filter(Boolean);

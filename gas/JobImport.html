@@ -91,7 +91,7 @@ $('parse').onclick = function () {
   $('status').innerHTML = '<span class="spin"></span>AIが読み取っています（20〜60秒ほどかかります）';
   google.script.run.withSuccessHandler(function (r) {
     $('parse').disabled = false;
-    $('status').textContent = r.cases.length + '件の案件を読み取りました';
+    $('status').textContent = r.cases.length + '件の案件を読み取りました' + (r.note ? '（' + r.note + '）' : '');
     cases = r.cases;
     if (!$('client').value.trim()) {
       var found = cases.map(function (c) { return c.client; }).filter(Boolean)[0];
