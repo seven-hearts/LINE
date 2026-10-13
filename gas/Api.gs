@@ -30,6 +30,8 @@ function handleApi_(body) {
       case 'register': return apiRegister_(userId, data);
       case 'uploadImage': return apiUploadImage_(userId, data);
       case 'onboarding': return apiOnboarding_(userId, data);
+      case 'shiftMe': return apiShiftMe_(userId, data);
+      case 'shift': return apiShift_(userId, data);
     }
     return { ok: false, error: '不明な操作です' };
   } catch (err) {

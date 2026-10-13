@@ -202,7 +202,7 @@ test('カレンダーの予定の中身', () => {
 
 test('1分ごとの自動処理で、カレンダーに登録・移動・削除する', () => {
   const c = vm.createContext({});
-  for (const f of ['Options.gs', 'Validation.gs', 'Line.gs', 'Sheet.gs', 'Interview.gs', 'Code.gs']) {
+  for (const f of ['Options.gs', 'Validation.gs', 'Line.gs', 'Sheet.gs', 'Interview.gs', 'Code.gs', 'Shift.gs']) {
     vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'gas', f), 'utf8'), c, { filename: f });
   }
   const header = c.COLUMNS[c.REG_SHEET].map((x) => x[1]);
@@ -226,7 +226,7 @@ test('1分ごとの自動処理で、カレンダーに登録・移動・削除�
   let props = {};
   Object.assign(c, {
     __db: db, __header: header, __cal: calendar, __errors: errors,
-    PropertiesService: { getScriptProperties: () => ({ getProperties: () => props }) },
+    PropertiesService: { getScriptProperties: () => ({ getProperties: () => props, getProperty: (k) => props[k] || null }) },
     CalendarApp: { getDefaultCalendar: () => calendar, getCalendarById: () => null },
     CacheService: { getScriptCache: () => ({ get: (k) => cacheStore[k] || null, put: (k, v) => { cacheStore[k] = v; } }) }
   });

@@ -82,6 +82,14 @@ function onText_(ev, userId, text) {
     }
     return;
   }
+  if (/シフト/.test(text)) {
+    if (rec && isShiftTarget_(rec)) {
+      replyMessage_(ev.replyToken, [shiftButton_(defaultShiftMonth_(new Date()))]);
+    } else {
+      replyMessage_(ev.replyToken, [textMessage_('シフトの提出は、お仕事を始められる状態になってからご案内します。')]);
+    }
+    return;
+  }
   if (/登録|応募|変更/.test(text)) {
     if (rec) replyMessage_(ev.replyToken, [registerButton_('登録内容の確認・変更はこちらから行えます')]);
     else startChat_(ev.replyToken, userId, '');
@@ -139,7 +147,7 @@ function statusText_(rec) {
     case STATUS.DOC_SUBMITTED:
       return name + '提出書類を確認中です。確認が終わり次第ご連絡します。';
     case STATUS.ACTIVE:
-      return name + 'お仕事のご案内をお待ちください。登録内容の変更は「変更」と送信してください。';
+      return name + '毎月' + SHIFT_SEND_DAY + '日に翌月のシフト提出のご案内をお送りします（「シフト」と送信するといつでも提出・変更できます）。\n登録内容の変更は「変更」と送信してください。';
     default:
       return 'ご不明な点はこのトークでお問い合わせください。';
   }

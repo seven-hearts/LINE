@@ -4,12 +4,13 @@
  * - LINE公式アカウントの Webhook（友だち追加後、トークで質問してスタッフ登録・キーワード応答）
  * - LIFF フォームからの登録内容の変更・書類提出 API
  * - スプレッドシートでステータスを「採用」にすると書類提出の案内を自動送信
+ * - 毎月25日に「稼働可」のスタッフへ翌月のシフト提出フォームを送り、勤務エリアごとに集計（Shift.gs）
  *
  * 設定値はすべて「プロジェクトの設定 > スクリプト プロパティ」に保存します（README参照）。
  */
 
 /** 個人情報の取り扱いページ（liff/privacy.html）。別のページを使う場合はスクリプト プロパティ PRIVACY_POLICY_URL で上書き */
-var DEFAULT_PRIVACY_POLICY_URL = 'https://bei0366.github.io/LINE/liff/privacy.html';
+var DEFAULT_PRIVACY_POLICY_URL = 'https://seven-hearts.github.io/LINE/liff/privacy.html';
 
 /** 案件の読み取りに使う Claude のモデル。スクリプト プロパティ CLAUDE_MODEL で変更できる */
 var DEFAULT_CLAUDE_MODEL = 'claude-opus-5-5';
@@ -117,6 +118,7 @@ function setup() {
   var reg = ensureSheet_(ss, REG_SHEET);
   ensureSheet_(ss, ONB_SHEET);
   ensureSheet_(ss, CHAT_SHEET);
+  ensureSheet_(ss, SHIFT_SHEET);
   ensureSheet_(ss, LOG_SHEET);
   setupJobSheets_(ss);
 
@@ -148,7 +150,7 @@ function setup() {
 
   var handlers = ScriptApp.getProjectTriggers().map(function (t) { return t.getHandlerFunction(); });
   if (handlers.indexOf('onStatusEdit') < 0) ScriptApp.newTrigger('onStatusEdit').forSpreadsheet(ss).onEdit().create();
-  // リマインド・通話ボタン・不採用通知を時刻どおりに送るため、1分ごとに確認する
+  // リマインド・通話ボタン・不採用通知・シフト提出の案内を時刻どおりに送るため、1分ごとに確認する
   if (handlers.indexOf('runScheduler') < 0) ScriptApp.newTrigger('runScheduler').timeBased().everyMinutes(1).create();
 
   // カレンダーの権限をここで許可してもらう（許可がないと、1分ごとの自動処理でカレンダーに登録できない）

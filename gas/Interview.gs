@@ -343,6 +343,10 @@ function onOpen() {
     .addSeparator()
     .addItem('不採用通知の送信予定を確認', 'showPendingNotices')
     .addItem('不採用通知を今すぐ送る', 'sendRejectionsNow')
+    .addSeparator()
+    .addItem('シフト集計を更新（翌月分）', 'updateShiftSummaryNextMonth')
+    .addItem('シフト集計を更新（今月分）', 'updateShiftSummaryThisMonth')
+    .addItem('シフト提出の案内を今すぐ送る（翌月分）', 'sendShiftRequestsNow')
     .addToUi();
 }
 
@@ -375,11 +379,12 @@ function sendRejectionsNow() {
 
 /**
  * 時間主導トリガー（setup で1分ごとに登録）。
- * リマインド・通話ボタン・不採用通知のうち、送る時刻になったものを送る。
+ * リマインド・通話ボタン・不採用通知・シフト提出の案内のうち、送る時刻になったものを送る。
+ * シフトが提出されていれば、その月のシフト集計を作り直す（Shift.gs）。
  */
 function runScheduler() {
   var sh = sheet_(REG_SHEET);
-  if (sh.getLastRow() < 2) return;
+  if (sh.getLastRow() < 2) return rebuildDirtyShiftSummaries_();
   var header = headerMap_(sh);
   var rows = sh.getRange(2, 1, sh.getLastRow() - 1, sh.getLastColumn()).getValues();
   var now = new Date();
@@ -391,6 +396,8 @@ function runScheduler() {
   // うまくいかなかったときは1時間待ってからやり直す（同じエラーを1分ごとに記録し続けないため）
   var cache = useCalendar ? CacheService.getScriptCache() : null;
   if (cache && cache.get('cal:all')) useCalendar = false;
+  // 送信済みの月を書く列がないと、毎分送り直してしまうため送らない（setup を実行すると列ができる）
+  var canRequestShift = hasShiftRequestColumn_(header);
 
   rows.forEach(function (values) {
     var rec = rowToRecord_(REG_SHEET, header, values);
@@ -419,7 +426,16 @@ function runScheduler() {
         logError_('自動送信：' + action, rec.userId, err);
       }
     });
+    if (canRequestShift && shiftRequestDue_(rec, now)) {
+      try {
+        sendShiftRequest_(rec, nextShiftMonth_(now));
+      } catch (err) {
+        console.error('shift request failed', rec.userId, err && err.stack || err);
+        logError_('シフト提出の案内', rec.userId, err);
+      }
+    }
   });
+  rebuildDirtyShiftSummaries_();
 }
 
 function runAction_(rec, action, callUrl) {

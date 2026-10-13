@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>シフト提出｜セブンハーツ</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header>
+    <img class="logo" src="img/logo.png" alt="SEVEN HEARTS">
+    <h1>シフト提出</h1>
+    <p>出勤できる日を選んでください</p>
+  </header>
+
+  <main>
+    <div id="screen-loading" data-screen class="center">
+      <div class="spinner"></div>
+      <p>読み込み中…</p>
+    </div>
+
+    <div id="screen-error" data-screen class="center" hidden>
+      <div class="big-icon">!</div>
+      <h2>ご案内</h2>
+      <p id="error-message"></p>
+    </div>
+
+    <div id="screen-done" data-screen class="center" hidden>
+      <div class="big-icon">♥</div>
+      <h2>シフトを受け付けました</h2>
+      <p id="done-message"></p>
+      <p class="hint">内容の変更は、トーク画面で「シフト」と送信すると行えます。</p>
+      <button type="button" class="primary" id="close-button">閉じる</button>
+    </div>
+
+    <form id="screen-form" data-screen hidden novalidate>
+      <p class="notice" id="closed-notice" hidden></p>
+      <p class="notice" id="edit-notice" hidden>提出済みの内容を表示しています。変更して「更新する」を押してください。</p>
+
+      <section class="card">
+        <h2 id="month-title">出勤できる日</h2>
+        <p class="hint" style="margin-top:0">出勤できる日をタップして <strong>○</strong> にしてください（もう一度タップで × に戻ります）。</p>
+        <div class="bulk">
+          <button type="button" class="chip" data-bulk="all">すべて○</button>
+          <button type="button" class="chip" data-bulk="weekend">土日祝を○</button>
+          <button type="button" class="chip" data-bulk="clear">すべて×</button>
+        </div>
+        <div class="calendar" id="calendar" role="group" aria-label="出勤できる日"></div>
+        <ul class="cal-legend">
+          <li><span class="swatch weekday"></span>平日</li>
+          <li><span class="swatch off"></span>土日祝</li>
+          <li><span class="swatch long"></span>3連休以上</li>
+        </ul>
+        <p class="shift-count" id="shift-count" aria-live="polite"></p>
+      </section>
+
+      <section class="card">
+        <h2>備考</h2>
+        <div class="field">
+          <label for="note">時間の制限・連絡事項など<span class="opt">任意</span></label>
+          <textarea id="note" name="note" maxlength="300" placeholder="例：11/8 は17時まで、11/20 は午後から出勤できます"></textarea>
+        </div>
+      </section>
+
+      <button type="submit" class="primary" id="submit-button">提出する</button>
+    </form>
+  </main>
+
+  <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/common.js"></script>
+  <script src="js/shift.js"></script>
+</body>
+</html>

@@ -66,7 +66,7 @@ function checkSettings() {
   // 4. シート・トリガー
   try {
     var ss = SpreadsheetApp.openById(props.SPREADSHEET_ID);
-    [REG_SHEET, ONB_SHEET, CHAT_SHEET, JOB_SHEET, APPLY_SHEET, IMPORT_SHEET].forEach(function (name) {
+    [REG_SHEET, ONB_SHEET, CHAT_SHEET, JOB_SHEET, APPLY_SHEET, IMPORT_SHEET, SHIFT_SHEET].forEach(function (name) {
       var sh = ss.getSheetByName(name);
       if (!sh) return ng('シート「' + name + '」がありません。setup を実行してください');
       var header = headerMap_(sh);
@@ -81,8 +81,8 @@ function checkSettings() {
   if (hasTrigger) ok('ステータス変更時の自動送信トリガーがあります');
   else ng('ステータス変更時の自動送信トリガーがありません。setup を実行してください');
   var hasScheduler = ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === 'runScheduler'; });
-  if (hasScheduler) ok('リマインド・通話ボタン・不採用通知の自動送信トリガー（1分ごと）があります');
-  else ng('リマインド・通話ボタン・不採用通知の自動送信トリガーがありません。setup を実行してください');
+  if (hasScheduler) ok('リマインド・通話ボタン・不採用通知・シフト提出の案内の自動送信トリガー（1分ごと）があります');
+  else ng('リマインド・通話ボタン・不採用通知・シフト提出の案内の自動送信トリガーがありません。setup を実行してください');
   var calId = (props.CALENDAR_ID || '').trim();
   if (calId.toLowerCase() === 'off') {
     warn('CALENDAR_ID が off のため、面接日時を Google カレンダーに登録しません');
