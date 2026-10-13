@@ -61,6 +61,9 @@ test('1日1行にして、曜日・時間・金額・計上月を計算する', 
   assert.strictEqual(r.dress, '服装：上：白カッターシャツ／下：黒パンツ、華美でないスニーカー\n持ち物：筆記用具、メモ、腕時計');
   assert.strictEqual(r.staffTransport, '¥660（阪神大阪梅田〜阪神元町 往復）');
   assert.strictEqual(r.recruit, '募集中');
+  assert.strictEqual(r.work, 'イベント運営（受付・誘導・準備片付け）');
+  assert.strictEqual(r.role, 'ST');
+  assert.strictEqual(r.position, undefined);
   assert.strictEqual(r.caseId, '261006120000-1');
   assert.strictEqual(r.slotId, '261006120000-1-1');
 });
@@ -212,10 +215,9 @@ test('応募・確定・見送りの文面', () => {
   const slot = Object.assign({}, osakaFemale[0], { staffPay: '時給1,200円', meetingTime: '8:15', meetingPlace: '正面入口' });
   assert.match(ctx.applyAcceptedText_(slot), /^応募を受け付けました。/);
   const app = { name: '山田 花子', title: slot.title, date: '2026/10/08', time: '08:30〜15:30' };
-  const ok = ctx.applyConfirmedText_(app, slot);
+  const ok = ctx.applyConfirmedText_(app);
   assert.match(ok, /確定しました/);
-  assert.match(ok, /集合：8:15 正面入口/);
-  assert.match(ok, /時給1,200円/);
+  assert.match(ok, /詳細は、後日このトークでお送りします/);
   assert.doesNotMatch(ok, /1600/);
   assert.match(ctx.applyDeclinedText_(app), /定員に達したため/);
 });
@@ -377,4 +379,130 @@ test('Gemini：APIキーの誤り・モデル名の誤り・断られた・長�
   assert.throws(() => geminiCtx(() => [200, { candidates: [{ finishReason: 'MAX_TOKENS', content: { parts: [] } }] }]).c.parseJobText('x'), /分けて/);
   assert.throws(() => geminiCtx(() => gemOk({ cases: [] })).c.parseJobText('x'), /読み取れませんでした/);
   assert.throws(() => geminiCtx(() => gemOk({}), { GEMINI_API_KEY: '', AI_PROVIDER: 'gemini' }).c.parseJobText('x'), /GEMINI_API_KEY を設定/);
+});
+
+// ---- 詳細連絡と、交通費・出発時間の返信 ----
+
+// 依頼の例（ロハスミーツ高槻）を「案件一覧」の行にしたもの
+const lohas = [['2026/09/21', '月祝'], ['2026/09/22', '火祝']].map(([date, weekday], i) => ({
+  title: 'ロハスミーツ高槻', work: 'お菓子ボウリングの運営', place: '安満遺跡公園',
+  address: '〒569-0096 大阪府高槻市八丁畷町１２−３', date, weekday, start: '09:00', end: '17:30',
+  notes: '時間が前後する可能性あり', meetingPlace: '安満遺跡公園東広場にある\nスターバックス コーヒー 高槻安満遺跡公園店前に',
+  meetingTime: '開始10分前', contact: '前田\n090-7873-8978', dress: '服装：黒ズボン、華美でない上着、スニーカー\n持ち物：筆記用具、メモ、腕時計',
+  staffPay: '時給1180円', meal: 500, caseId: 'L-1', slotId: 'L-1-' + (i + 1)
+}));
+
+test('詳細連絡の文面（依頼の例と同じ形）', () => {
+  const f = plain(ctx.detailDefaults_(lohas[0]));
+  assert.strictEqual(f.pay, '時給1180円＋交通費');
+  assert.strictEqual(f.meal, '500円支給');
+  assert.strictEqual(f.dress, '黒ズボン、華美でない上着、スニーカー');
+  assert.strictEqual(f.belongings, '筆記用具、メモ、腕時計');
+  assert.strictEqual(f.place, '〒569-0096 大阪府高槻市八丁畷町１２−３　安満遺跡公園');
+  assert.strictEqual(ctx.detailText_(f, lohas), [
+    'ロハスミーツ高槻の詳細です。', '', '内容をよく読んで交通費と出発時間をお調べください。', '',
+    '■タイトル', 'ロハスミーツ高槻', '',
+    '■業務内容', 'お菓子ボウリングの運営', '',
+    '■日程', '9月21日(月祝)・9月22日(火祝)', '',
+    '■場所', '〒569-0096 大阪府高槻市八丁畷町１２−３　安満遺跡公園', '',
+    '■時間', '9:00~17:30', '※多少前後する可能性があります。', '',
+    '■集合場所', '安満遺跡公園東広場にある', 'スターバックス コーヒー 高槻安満遺跡公園店前に', '',
+    '■集合時間', '開始10分前', '',
+    '■集合担当：前田', '090-7873-8978', '',
+    '■服装', '黒ズボン、華美でない上着、スニーカー', '',
+    '■ギャランティ', '時給1180円＋交通費', '',
+    '■昼食', '500円支給', '',
+    '■持ち物', '筆記用具、メモ、腕時計'
+  ].join('\n'));
+  // 確定した日だけ・日によって時間が違えば日ごとに
+  const one = ctx.detailText_(f, [lohas[1]]);
+  assert.match(one, /■日程\n9月22日\(火祝\)\n/);
+  const diff = ctx.detailText_(Object.assign({}, f, { timeNote: '' }), [lohas[0], Object.assign({}, lohas[1], { start: '08:00', end: '18:00' })]);
+  assert.match(diff, /■時間\n9月21日\(月祝\) 9:00~17:30\n9月22日\(火祝\) 8:00~18:00\n\n/);
+  // 空の項目は出さない
+  assert.doesNotMatch(ctx.detailText_(Object.assign({}, f, { meal: '', contact: '' }), lohas), /■昼食|■集合担当/);
+  assert.match(ctx.travelRequestText_('ロハスミーツ高槻'), /「ロハスミーツ高槻」の交通費（往復）と出発時間/);
+});
+
+test('交通費と出発時間の返信を読む', () => {
+  const p = (t) => plain(ctx.parseTravelReply_(t));
+  assert.deepStrictEqual(p('交通費：1,060円\n出発時間：7:30'), { fare: 1060, departure: '07:30' });
+  assert.deepStrictEqual(p('交通費(往復) ８４０円　出発時間 ６時４５分'), { fare: 840, departure: '06:45' });
+  assert.deepStrictEqual(p('1060円です。7時半に出発します'), { fare: 1060, departure: '07:30' });
+  assert.deepStrictEqual(p('往復1,320円、出発は8時'), { fare: 1320, departure: '08:00' });
+  assert.deepStrictEqual(p('交通費は¥680です'), { fare: 680, departure: '' });
+  assert.deepStrictEqual(p('出発時間：7:05'), { fare: null, departure: '07:05' });
+  assert.deepStrictEqual(p('了解しました！よろしくお願いします'), { fare: null, departure: '' });
+  assert.deepStrictEqual(p('明日は9時集合ですか？'), { fare: null, departure: '' });
+});
+
+test('返信を待っている応募：確定・詳細連絡済み・未返信・今日以降、日程の早い案件から', () => {
+  const now = new Date(2026, 8, 20, 12, 0);
+  const app = (o) => Object.assign({ userId: 'U1', status: '確定', detailSentAt: '2026/09/19 10:00:00', fare: '', departure: '', title: 'ロハスミーツ高槻' }, o);
+  const apps = [
+    app({ caseId: 'B', date: '2026/09/25', title: '別の案件' }),
+    app({ caseId: 'L', date: '2026/09/22' }),
+    app({ caseId: 'L', date: '2026/09/21' }),
+    app({ caseId: 'X', date: '2026/09/19' }),                    // 過ぎた
+    app({ caseId: 'Y', date: '2026/09/23', detailSentAt: '' }),  // 詳細連絡をまだ送っていない
+    app({ caseId: 'Z', date: '2026/09/23', status: '応募' }),
+    app({ caseId: 'W', date: '2026/09/23', fare: 500, departure: '07:00' }), // 返信済み
+    app({ caseId: 'V', date: '2026/09/23', userId: 'U2' })
+  ];
+  const groups = ctx.travelPending_(apps, 'U1', now);
+  assert.deepStrictEqual(plain(groups.map((g) => g.map((a) => a.caseId + a.date))), [['L2026/09/21', 'L2026/09/22'], ['B2026/09/25']]);
+  const text = ctx.travelReplyText_(groups[0], 1060, '07:30', groups[1]);
+  assert.match(text, /「ロハスミーツ高槻」（9月21日\(月\)・9月22日\(火\)）の\n交通費（往復）：¥1,060\n出発時間：7:30/);
+  assert.match(text, /続けて「別の案件」/);
+  assert.match(ctx.travelReplyText_(groups[0], 1060, '', null), /出発時間も送ってください/);
+  assert.match(ctx.travelReplyText_(groups[0], null, '07:30', null), /交通費（往復）も送ってください/);
+});
+
+test('返信をシート「案件応募」に書き込む（Webhook）', () => {
+  const { c } = geminiCtx(() => gemOk({}));
+  const header = c.COLUMNS[c.APPLY_SHEET].map((x) => x[1]);
+  const rows = [
+    { userId: 'U1', status: '確定', caseId: 'L', slotId: 'L-1', title: 'ロハスミーツ高槻', date: '2099/09/21', detailSentAt: '2099/09/19 10:00:00', fare: '', departure: '' },
+    { userId: 'U1', status: '確定', caseId: 'L', slotId: 'L-2', title: 'ロハスミーツ高槻', date: '2099/09/22', detailSentAt: '2099/09/19 10:00:00', fare: '', departure: '' }
+  ];
+  const replies = [];
+  Object.assign(c, { __rows: rows, __replies: replies });
+  vm.runInContext(`
+    readAll_ = function () { return __rows.map(function (r, i) { return { rec: Object.assign({}, r), row: i + 2 }; }); };
+    updateCells_ = function (sheet, row, f) { Object.assign(__rows[row - 2], f); };
+    withLock_ = function (fn) { return fn(); };
+    replyMessage_ = function (t, m) { __replies.push(m[0].text); };
+    now_ = function () { return '2099/09/20 09:00:00'; };
+  `, c);
+  assert.strictEqual(c.handleTravelReply_({ replyToken: 'r' }, 'U1', '交通費：1,060円'), true);
+  assert.deepStrictEqual(rows.map((r) => [r.fare, r.departure, r.travelRepliedAt || '']), [[1060, '', ''], [1060, '', '']]);
+  assert.match(replies[0], /出発時間も送ってください/);
+  assert.strictEqual(c.handleTravelReply_({ replyToken: 'r' }, 'U1', '出発時間 7:30'), true);
+  assert.deepStrictEqual(rows.map((r) => [r.fare, r.departure, r.travelRepliedAt]), [[1060, '07:30', '2099/09/20 09:00:00'], [1060, '07:30', '2099/09/20 09:00:00']]);
+  assert.match(replies[1], /受け付けました。ありがとうございます/);
+  // 返信を待っていない人・関係ない文章は受け付けない（担当者が手で対応）
+  assert.strictEqual(c.handleTravelReply_({ replyToken: 'r' }, 'U1', '交通費：900円'), false);
+  assert.strictEqual(c.handleTravelReply_({ replyToken: 'r' }, 'U2', '交通費：900円'), false);
+  assert.strictEqual(c.handleTravelReply_({ replyToken: 'r' }, 'U1', 'よろしくお願いします'), false);
+  assert.strictEqual(replies.length, 2);
+});
+
+test('以前の「案件一覧」：D列「ポジション」→「仕事内容」にして、隣に新しい「ポジション」を入れる', () => {
+  const { c } = geminiCtx(() => gemOk({}));
+  const grid = [['取引先名', 'タイトル', '場所', 'ポジション', '日程'], ['A', 'パン祭り', 'X', '案内業務', '2026/10/08'], ['', '', '', '', '']];
+  const sheet = {
+    getLastColumn: () => grid[0].length,
+    getLastRow: () => grid.filter((r) => r.some((v) => v !== '')).length,
+    getRange: (r, col, nr, nc) => ({
+      getValues: () => grid.slice(r - 1, r - 1 + (nr || 1)).map((row) => row.slice(col - 1, col - 1 + (nc || 1))),
+      setValue: (v) => { grid[r - 1][col - 1] = v; },
+      setValues: (vals) => vals.forEach((v, k) => { grid[r - 1 + k].splice(col - 1, v.length, ...v); })
+    }),
+    insertColumnAfter: (col) => grid.forEach((row) => row.splice(col, 0, ''))
+  };
+  c.migrateWorkColumn_(sheet);
+  assert.deepStrictEqual(grid[0], ['取引先名', 'タイトル', '場所', '仕事内容', 'ポジション', '日程']);
+  assert.deepStrictEqual(grid[1], ['A', 'パン祭り', 'X', '案内業務', 'ST', '2026/10/08']);
+  c.migrateWorkColumn_(sheet); // 2回目は何もしない
+  assert.strictEqual(grid[0].length, 6);
 });

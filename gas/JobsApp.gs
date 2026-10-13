@@ -16,6 +16,7 @@ var ANTHROPIC_FALLBACK_BETA = 'server-side-fallback-2026-07-01';
 
 /** 「案件一覧」などのシートを用意する（setup から呼ぶ。何度実行しても安全） */
 function setupJobSheets_(ss) {
+  migrateWorkColumn_(ss.getSheetByName(JOB_SHEET));
   var jobs = ensureSheet_(ss, JOB_SHEET);
   ensureSheet_(ss, APPLY_SHEET);
   ensureSheet_(ss, IMPORT_SHEET);
@@ -28,11 +29,33 @@ function setupJobSheets_(ss) {
   col('請求書').setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(INVOICE_OPTIONS, true).build());
   col('募集状況').setDataValidation(SpreadsheetApp.newDataValidation()
     .requireValueInList([RECRUIT.OPEN, RECRUIT.CLOSED], true).build());
+  col('ポジション').setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(ROLES, true).build());
 
   var apply = ss.getSheetByName(APPLY_SHEET);
   var statusValues = Object.keys(APPLY_STATUS).map(function (k) { return APPLY_STATUS[k]; });
   apply.getRange(2, headerMap_(apply)['状態'] + 1, apply.getMaxRows() - 1, 1).setDataValidation(
     SpreadsheetApp.newDataValidation().requireValueInList(statusValues, true).setAllowInvalid(false).build());
+  apply.getRange(2, headerMap_(apply)['交通費（往復）'] + 1, apply.getMaxRows() - 1, 1).setNumberFormat('¥#,##0');
+}
+
+/**
+ * 以前の「案件一覧」（D列が「ポジション」で仕事内容が入っていたもの）を、
+ * D列「仕事内容」＋その隣に新しい「ポジション」（D / AD / ST）の形にする。何度実行しても安全。
+ */
+function migrateWorkColumn_(sh) {
+  if (!sh || !sh.getLastColumn()) return;
+  var header = headerMap_(sh);
+  if (header['仕事内容'] !== undefined || header['ポジション'] === undefined) return;
+  var col = header['ポジション'] + 1;
+  sh.getRange(1, col).setValue('仕事内容');
+  sh.insertColumnAfter(col);
+  sh.getRange(1, col + 1).setValue('ポジション');
+  if (sh.getLastRow() >= 2) {
+    var n = sh.getLastRow() - 1;
+    // 入力済みの行は「ST」にしておく（違う人だけ担当者が直す）
+    var titles = sh.getRange(2, header['タイトル'] + 1, n, 1).getValues();
+    sh.getRange(2, col + 1, n, 1).setValues(titles.map(function (t) { return [t[0] ? DEFAULT_ROLE : '']; }));
+  }
 }
 
 function jobSheets_() {
@@ -522,8 +545,7 @@ function onApplyEdit_(e) {
     if (!app.userId || app.notifiedAt) return;
     if (app.status !== APPLY_STATUS.CONFIRMED && app.status !== APPLY_STATUS.DECLINED) return;
     try {
-      var slot = findSlot_(app.slotId);
-      var text = app.status === APPLY_STATUS.CONFIRMED ? applyConfirmedText_(app, slot && slot.rec) : applyDeclinedText_(app);
+      var text = app.status === APPLY_STATUS.CONFIRMED ? applyConfirmedText_(app) : applyDeclinedText_(app);
       if (pushMessage_(app.userId, [textMessage_(text)])) {
         updateCells_(APPLY_SHEET, firstRow + k, { notifiedAt: now_() });
       } else {
@@ -535,3 +557,146 @@ function onApplyEdit_(e) {
     }
   });
 }
+
+// ---- 詳細連絡（DetailSend.html から呼ぶ） ----
+
+function showDetailSend() {
+  jobSheets_();
+  var html = HtmlService.createHtmlOutputFromFile('DetailSend').setWidth(1000).setHeight(780);
+  SpreadsheetApp.getUi().showModalDialog(html, '確定した人に詳細連絡を送る');
+}
+
+/** 確定した応募を、案件ごと・スタッフごとにまとめる（日程が過ぎたものは除く） */
+function confirmedByCase_(now) {
+  var today = ymd_(now);
+  var slots = {};
+  readAll_(JOB_SHEET).forEach(function (x) { if (x.rec.slotId) slots[x.rec.slotId] = x.rec; });
+  var cases = {};
+  var order = [];
+  readAll_(APPLY_SHEET).forEach(function (x) {
+    var a = x.rec;
+    a._row = x.row;
+    if (a.status !== APPLY_STATUS.CONFIRMED || !a.userId || !slots[a.slotId]) return;
+    var d = parseYmd_(a.date);
+    if (d && ymd_(d) < today) return;
+    if (!cases[a.caseId]) { cases[a.caseId] = { caseId: a.caseId, staff: {}, staffOrder: [] }; order.push(a.caseId); }
+    var c = cases[a.caseId];
+    if (!c.staff[a.userId]) { c.staff[a.userId] = { userId: a.userId, name: a.name, apps: [] }; c.staffOrder.push(a.userId); }
+    c.staff[a.userId].apps.push(a);
+  });
+  return order.map(function (id) {
+    var c = cases[id];
+    c.staffList = c.staffOrder.map(function (u) {
+      var s = c.staff[u];
+      s.slots = s.apps.map(function (a) { return slots[a.slotId]; });
+      return s;
+    });
+    c.first = c.staffList[0].slots[0];
+    return c;
+  });
+}
+
+/** 画面を開いたとき：送れる案件と、入力欄の初期値 */
+function detailSendInit() {
+  var selected = {};
+  var sh = SpreadsheetApp.getActiveSheet();
+  if (sh && sh.getName() === APPLY_SHEET) {
+    var header = headerMap_(sh);
+    (sh.getActiveRangeList() ? sh.getActiveRangeList().getRanges() : []).forEach(function (range) {
+      if (range.getRow() < 2) return;
+      sh.getRange(range.getRow(), header['案件ID'] + 1, range.getNumRows(), 1).getValues()
+        .forEach(function (v) { if (v[0]) selected[v[0]] = true; });
+    });
+  }
+  return {
+    cases: confirmedByCase_(new Date()).map(function (c) {
+      return {
+        caseId: c.caseId, title: c.first.title, selected: !!selected[c.caseId], fields: detailDefaults_(c.first),
+        staff: c.staffList.map(function (s) {
+          var sent = s.apps.filter(function (a) { return a.detailSentAt; }).length === s.apps.length;
+          return {
+            userId: s.userId, name: s.name, dates: s.slots.map(jpDate_).join('・'), sent: sent,
+            fare: s.apps[0].fare === '' ? '' : String(s.apps[0].fare), departure: String(s.apps[0].departure || '')
+          };
+        })
+      };
+    })
+  };
+}
+
+function findConfirmedCase_(caseId) {
+  var c = confirmedByCase_(new Date()).filter(function (x) { return x.caseId === caseId; })[0];
+  if (!c) throw new Error('確定した人がいない案件です（「案件応募」で状態を「確定」にしてから送ってください）');
+  return c;
+}
+
+/** 文面のプレビュー（選んだスタッフ、いなければ最初のスタッフの日程で） */
+function detailPreview(req) {
+  var c = findConfirmedCase_(req.caseId);
+  var s = c.staffList.filter(function (x) { return x.userId === req.userId; })[0] || c.staffList[0];
+  return { name: s.name, text: detailText_(req.fields, s.slots), request: travelRequestText_(str_(req.fields.title)) };
+}
+
+/** 詳細連絡と、交通費・出発時間の返信のお願いを送る */
+function detailSend(req) {
+  var c = findConfirmedCase_(req.caseId);
+  var ids = req.userIds || [];
+  var targets = c.staffList.filter(function (s) { return ids.indexOf(s.userId) >= 0; });
+  if (!targets.length) throw new Error('送る人を選んでください');
+  var f = req.fields;
+
+  // 集合場所などは「案件一覧」にも保存しておく（次に送るときの初期値になる）
+  readAll_(JOB_SHEET).forEach(function (x) {
+    if (x.rec.caseId !== c.caseId) return;
+    var changes = {};
+    ['meetingPlace', 'meetingTime', 'contact'].forEach(function (k) {
+      if (str_(f[k]) !== str_(x.rec[k])) changes[k] = str_(f[k]);
+    });
+    if (Object.keys(changes).length) updateCells_(JOB_SHEET, x.row, changes);
+  });
+
+  var sent = [], failed = [];
+  targets.forEach(function (s) {
+    var ok = pushMessage_(s.userId, [textMessage_(detailText_(f, s.slots)), textMessage_(travelRequestText_(str_(f.title)))]);
+    if (ok) {
+      sent.push(s.name);
+      // 送り直したときは、前の返信を消して、もう一度返信してもらう
+      s.apps.forEach(function (a) {
+        updateCells_(APPLY_SHEET, a._row, { detailSentAt: now_(), fare: '', departure: '', travelRepliedAt: '' });
+      });
+    } else {
+      failed.push(s.name);
+      logError_('詳細連絡', s.userId, new Error('LINE への送信に失敗しました'));
+    }
+  });
+  return { sent: sent, failed: failed };
+}
+
+// ---- 交通費・出発時間の返信（Webhook の onText_ から） ----
+
+/** 返信として受け付けたら true（返信を待っていない人や、読めない文章なら false で、担当者が手で対応する） */
+function handleTravelReply_(ev, userId, text) {
+  var r = parseTravelReply_(text);
+  if (r.fare === null && !r.departure) return false;
+  var reply = withLock_(function () {
+    var apps = readAll_(APPLY_SHEET).map(function (x) { x.rec._row = x.row; return x.rec; });
+    var groups = travelPending_(apps, userId, new Date());
+    if (!groups.length) return '';
+    var target = groups[0];
+    var fare = r.fare !== null ? r.fare : toNum_(target[0].fare);
+    var departure = r.departure || normalizeTime_(target[0].departure);
+    target.forEach(function (a) {
+      var f = {};
+      if (fare !== null) f.fare = fare;
+      if (departure) f.departure = departure;
+      if (fare !== null && departure) f.travelRepliedAt = now_();
+      updateCells_(APPLY_SHEET, a._row, f);
+    });
+    var done = fare !== null && departure;
+    return travelReplyText_(target, fare, departure, done && groups[1] ? groups[1] : null);
+  });
+  if (!reply) return false;
+  replyMessage_(ev.replyToken, [textMessage_(reply)]);
+  return true;
+}
+

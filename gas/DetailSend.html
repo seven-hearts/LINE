@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html>
+<head>
+<base target="_top">
+<meta charset="utf-8">
+<style>
+  :root { --brand: #381E19; --line: #ddd; --muted: #777; --bg: #faf7f5; --err: #c62828; --warn: #8a5a00; }
+  * { box-sizing: border-box; }
+  body { font-family: "Hiragino Sans", "Noto Sans JP", sans-serif; font-size: 13px; margin: 0; padding: 12px 16px 80px; color: #222; }
+  h2 { font-size: 14px; margin: 12px 0 6px; color: var(--brand); }
+  label.l { display: block; font-size: 11px; color: var(--muted); margin: 6px 0 2px; }
+  input[type=text], select, textarea { width: 100%; font: inherit; padding: 5px 6px; border: 1px solid var(--line); border-radius: 4px; background: #fff; }
+  textarea { resize: vertical; }
+  .cols { display: flex; gap: 16px; }
+  .cols > div { flex: 1; min-width: 0; }
+  .row { display: flex; gap: 8px; }
+  .row > div { flex: 1; min-width: 0; }
+  .staff { border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; background: var(--bg); max-height: 170px; overflow: auto; }
+  .staff label { display: block; padding: 3px 0; }
+  .sent { color: var(--warn); font-size: 11px; }
+  .got { color: #2e7d32; font-size: 11px; }
+  .preview { white-space: pre-wrap; border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; background: #fff; font-size: 12px; max-height: 330px; overflow: auto; }
+  .bubble { background: #e9f8e5; border-radius: 10px; padding: 8px 10px; margin-bottom: 8px; }
+  button { font: inherit; padding: 7px 16px; border-radius: 4px; border: 1px solid var(--brand); background: #fff; color: var(--brand); cursor: pointer; }
+  button.primary { background: var(--brand); color: #fff; }
+  button:disabled { opacity: .5; cursor: default; }
+  .msg { margin: 8px 0; padding: 8px 10px; border-radius: 4px; display: none; white-space: pre-wrap; }
+  .msg.err { display: block; background: #fdecea; color: var(--err); }
+  .msg.info { display: block; background: #eef6ee; color: #2e7d32; }
+  .bar { position: fixed; left: 0; right: 0; bottom: 0; padding: 10px 16px; background: #fff; border-top: 1px solid var(--line); display: flex; gap: 8px; align-items: center; }
+  .hint { color: var(--muted); font-size: 11px; }
+</style>
+</head>
+<body>
+  <div id="msg" class="msg"></div>
+  <div id="empty" class="hint" style="display:none">詳細連絡を送れる案件がありません。「案件応募」で状態を「確定」にした人が対象です（日程が過ぎた案件は出ません）。</div>
+  <div id="main" style="display:none">
+    <label class="l" for="case">案件</label>
+    <select id="case"></select>
+    <div class="cols">
+      <div>
+        <h2>連絡する内容</h2>
+        <div class="hint">「案件一覧」の内容を入れてあります。日程と時間は、一人ひとりの確定した日程が入ります。</div>
+        <div class="row"><div><label class="l">タイトル</label><input type="text" data-f="title"></div><div><label class="l">業務内容</label><input type="text" data-f="work"></div></div>
+        <label class="l">場所</label><input type="text" data-f="place">
+        <label class="l">時間の注意書き（「※」の後に入ります）</label><input type="text" data-f="timeNote" placeholder="例：多少前後する可能性があります。">
+        <label class="l">集合場所</label><textarea rows="2" data-f="meetingPlace"></textarea>
+        <div class="row"><div><label class="l">集合時間</label><input type="text" data-f="meetingTime" placeholder="例：開始10分前"></div><div><label class="l">集合担当（名前・電話番号）</label><input type="text" data-f="contact" placeholder="例：前田 090-0000-0000"></div></div>
+        <label class="l">服装</label><input type="text" data-f="dress">
+        <div class="row"><div><label class="l">ギャランティ</label><input type="text" data-f="pay" placeholder="例：時給1180円＋交通費"></div><div><label class="l">昼食</label><input type="text" data-f="meal" placeholder="例：500円支給"></div></div>
+        <label class="l">持ち物</label><input type="text" data-f="belongings">
+      </div>
+      <div>
+        <h2>送る人</h2>
+        <div id="staff" class="staff"></div>
+        <h2>プレビュー <span id="pvName" class="hint"></span></h2>
+        <div id="preview" class="preview"></div>
+      </div>
+    </div>
+  </div>
+  <div class="bar">
+    <button id="pv">プレビューを更新</button>
+    <button id="send" class="primary" disabled>送る</button>
+    <button onclick="google.script.host.close()">閉じる</button>
+    <span class="hint">送ったあと、交通費（往復）と出発時間の返信が「案件応募」に自動で入ります。</span>
+  </div>
+
+<script>
+var data = null, current = null;
+function $(id) { return document.getElementById(id); }
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+function showMsg(text, kind) { var m = $('msg'); m.textContent = text; m.className = 'msg ' + (kind || 'err'); }
+function fields() {
+  var f = {};
+  Array.prototype.forEach.call(document.querySelectorAll('[data-f]'), function (el) { f[el.dataset.f] = el.value; });
+  return f;
+}
+function checked() {
+  return Array.prototype.map.call(document.querySelectorAll('input[name=staff]:checked'), function (x) { return x.value; });
+}
+
+google.script.run.withSuccessHandler(function (r) {
+  data = r;
+  if (!r.cases.length) { $('empty').style.display = 'block'; return; }
+  $('main').style.display = 'block';
+  var sel = 0;
+  r.cases.forEach(function (c, i) { if (c.selected && !sel) sel = i; });
+  $('case').innerHTML = r.cases.map(function (c, i) {
+    return '<option value="' + i + '"' + (i === sel ? ' selected' : '') + '>' + esc(c.title) + '（確定 ' + c.staff.length + '人）</option>';
+  }).join('');
+  pick(sel);
+}).withFailureHandler(function (e) { showMsg(e.message); }).detailSendInit();
+
+$('case').onchange = function () { pick(+this.value); };
+
+function pick(i) {
+  current = data.cases[i];
+  Array.prototype.forEach.call(document.querySelectorAll('[data-f]'), function (el) { el.value = current.fields[el.dataset.f] || ''; });
+  $('staff').innerHTML = current.staff.map(function (s) {
+    var state = s.fare !== '' && s.departure ? '<span class="got">返信済み：交通費 ' + esc(s.fare) + '円・出発 ' + esc(s.departure) + '</span>'
+      : s.sent ? '<span class="sent">送信済み（返信待ち）</span>' : '';
+    return '<label><input type="checkbox" name="staff" value="' + esc(s.userId) + '"' + (s.sent ? '' : ' checked') + '> ' +
+      esc(s.name) + '　' + esc(s.dates) + ' ' + state + '</label>';
+  }).join('');
+  preview();
+}
+
+function preview() {
+  if (!current) return;
+  var ids = checked();
+  $('send').disabled = true;
+  google.script.run.withSuccessHandler(function (r) {
+    $('pvName').textContent = '（' + r.name + ' さんの場合）';
+    $('preview').innerHTML = '<div class="bubble">' + esc(r.text) + '</div><div class="bubble">' + esc(r.request) + '</div>';
+    var n = checked().length;
+    $('send').disabled = !n;
+    $('send').textContent = n ? n + '人に送る' : '送る';
+  }).withFailureHandler(function (e) { showMsg(e.message); })
+    .detailPreview({ caseId: current.caseId, userId: ids[0] || '', fields: fields() });
+}
+
+$('pv').onclick = preview;
+document.addEventListener('change', function (e) { if (e.target.name === 'staff') preview(); });
+document.addEventListener('input', function (e) { if (e.target.dataset && e.target.dataset.f) $('send').disabled = true; });
+
+$('send').onclick = function () {
+  var ids = checked();
+  if (!ids.length) return;
+  $('send').disabled = true;
+  $('send').textContent = '送信中…';
+  google.script.run.withSuccessHandler(function (r) {
+    showMsg((r.sent.length ? r.sent.join('、') + ' さんに送りました。' : '') +
+      (r.failed.length ? '\n' + r.failed.join('、') + ' さんには送れませんでした（シート「エラーログ」を確認してください）。' : ''), r.failed.length ? 'err' : 'info');
+    $('send').textContent = '送る';
+    google.script.run.withSuccessHandler(function (d) {
+      data = d;
+      var i = Math.max(0, d.cases.findIndex(function (c) { return c.caseId === current.caseId; }));
+      if (d.cases.length) pick(i);
+    }).detailSendInit();
+  }).withFailureHandler(function (e) {
+    $('send').disabled = false;
+    $('send').textContent = '送る';
+    showMsg(e.message);
+  }).detailSend({ caseId: current.caseId, userIds: ids, fields: fields() });
+};
+</script>
+</body>
+</html>

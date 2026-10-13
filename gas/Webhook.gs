@@ -64,6 +64,9 @@ function onText_(ev, userId, text) {
     return continueChat_(ev, userId, chat, { text: text });
   }
 
+  // 詳細連絡のあとの、交通費（往復）と出発時間の返信
+  if (handleTravelReply_(ev, userId, text)) return;
+
   var rec = readRecord_(REG_SHEET, userId);
 
   if (/登録状況|ステータス/.test(text)) {

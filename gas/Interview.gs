@@ -339,6 +339,7 @@ function onOpen() {
   SpreadsheetApp.getUi().createMenu('セブンハーツ')
     .addItem('案件を取り込む（依頼文から）', 'showJobImport')
     .addItem('案件をLINEで配信', 'showJobSend')
+    .addItem('確定した人に詳細連絡を送る', 'showDetailSend')
     .addSeparator()
     .addItem('不採用通知の送信予定を確認', 'showPendingNotices')
     .addItem('不採用通知を今すぐ送る', 'sendRejectionsNow')

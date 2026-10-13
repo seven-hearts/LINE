@@ -10,6 +10,9 @@
 var RECRUIT = { OPEN: '募集中', CLOSED: '募集終了' };
 var APPLY_STATUS = { APPLIED: '応募', CONFIRMED: '確定', DECLINED: '見送り', CANCELLED: '辞退' };
 var INVOICE_OPTIONS = ['未', '発行済', '入金済'];
+/** ポジション（D：ディレクター／AD：アシスタントディレクター／ST：スタッフ） */
+var ROLES = ['D', 'AD', 'ST'];
+var DEFAULT_ROLE = 'ST';
 
 var PAY_BASIS = ['拘束時間', '実働時間', '日給', '記載なし'];
 var GENDER_REQ = ['男女可', '男性のみ', '女性のみ', '記載なし'];
@@ -216,7 +219,8 @@ function normalizeCase_(c) {
     place: str_(c.venue),
     prefecture: str_(c.prefecture),
     address: str_(c.address_access),
-    position: str_(c.position),
+    work: str_(c.position),
+    role: DEFAULT_ROLE,
     conditions: str_(c.conditions),
     genderReq: GENDER_REQ.indexOf(c.gender) >= 0 ? c.gender : '記載なし',
     dress: str_(c.dress),
@@ -290,7 +294,8 @@ function jobRows_(cases, opts) {
         client: str_(c.client) || str_(opts.client),
         title: c.title,
         place: c.place,
-        position: c.position,
+        work: c.work,
+        role: ROLES.indexOf(str_(c.role).toUpperCase()) >= 0 ? str_(c.role).toUpperCase() : DEFAULT_ROLE,
         date: d ? ymd_(d) : str_(s.date),
         start: normalizeTime_(s.start),
         end: normalizeTime_(s.end),
@@ -443,7 +448,7 @@ function jobBubbles_(rows) {
   var info = [];
   var where = [first.place, first.address].filter(Boolean).join('\n');
   if (where) info.push(infoLine_('場所', where));
-  if (first.position) info.push(infoLine_('仕事', first.position));
+  if (first.work) info.push(infoLine_('仕事', first.work));
   if (first.genderReq === '女性のみ') info.push(infoLine_('募集', '女性スタッフ'));
   if (first.genderReq === '男性のみ') info.push(infoLine_('募集', '男性スタッフ'));
   if (first.meetingTime || first.meetingPlace) info.push(infoLine_('集合', [first.meetingTime, first.meetingPlace].filter(Boolean).join('\n')));
@@ -522,19 +527,169 @@ function applyAcceptedText_(slot) {
     '\n\n担当者が確認して、このトークで結果をお知らせします。';
 }
 
-function applyConfirmedText_(app, slot) {
-  var lines = [app.name + ' さん\n\nお仕事が確定しました！よろしくお願いいたします。\n', '■ ' + app.title, '📅 ' + app.date + ' ' + app.time];
-  if (slot) {
-    lines.push('📍 ' + slot.place + (slot.address ? '\n　 ' + slot.address : ''));
-    if (slot.meetingTime || slot.meetingPlace) lines.push('⏰ 集合：' + [slot.meetingTime, slot.meetingPlace].filter(Boolean).join(' '));
-    if (slot.dress) lines.push('👔 ' + slot.dress.replace(/\n/g, '\n　 '));
-    if (slot.staffPay) lines.push('💴 ' + slot.staffPay);
-  }
-  lines.push('\nご都合が悪くなった場合は、すぐにこのトークでお知らせください。');
-  return lines.join('\n');
+/** 「確定」にしたときの連絡（集合場所などの詳細は、あとで担当者が「詳細連絡を送る」から送る） */
+function applyConfirmedText_(app) {
+  return app.name + ' さん\n\nお仕事が確定しました！よろしくお願いいたします。\n\n' +
+    '■ ' + app.title + '\n📅 ' + app.date + ' ' + app.time + '\n\n' +
+    '集合場所・持ち物などの詳細は、後日このトークでお送りします。\n' +
+    'ご都合が悪くなった場合は、すぐにこのトークでお知らせください。';
 }
 
 function applyDeclinedText_(app) {
   return app.name + ' さん\n\n「' + app.title + '」（' + app.date + ' ' + app.time + '）にご応募いただき、ありがとうございました。\n\n' +
     '今回は定員に達したため、ご案内できませんでした。またのご応募をお待ちしています。';
+}
+
+// ---- 詳細連絡（確定したスタッフに担当者が送る） ----
+
+/** 「服装：…\n持ち物：…」（服装　持ち物 の列）→ 服装と持ち物に分ける */
+function splitDress_(text) {
+  var dress = [], belongings = [];
+  var target = dress;
+  String(text || '').split('\n').forEach(function (line) {
+    var m = /^\s*(服装|持ち物)[：:]\s*(.*)$/.exec(line);
+    if (m) {
+      target = m[1] === '服装' ? dress : belongings;
+      if (m[2]) target.push(m[2]);
+    } else if (line.trim()) {
+      target.push(line.trim());
+    }
+  });
+  return { dress: dress.join('\n'), belongings: belongings.join('\n') };
+}
+
+function shortTime_(t) {
+  return normalizeTime_(t).replace(/^0/, '');
+}
+
+/** 「10月8日(木)」 */
+function jpDate_(row) {
+  var d = parseYmd_(row.date);
+  if (!d) return str_(row.date);
+  return (d.getMonth() + 1) + '月' + d.getDate() + '日(' + (row.weekday || WEEKDAYS_JA[d.getDay()]) + ')';
+}
+
+/** 詳細連絡の入力欄の初期値（「案件一覧」の行から） */
+function detailDefaults_(row) {
+  var d = splitDress_(row.dress);
+  var meal = toNum_(row.meal);
+  var pay = str_(row.staffPay);
+  var place = str_(row.address);
+  if (row.place && place.indexOf(row.place) < 0) place = (place ? place + '　' : '') + row.place;
+  return {
+    title: str_(row.title),
+    work: str_(row.work),
+    place: place,
+    timeNote: /前後/.test(str_(row.notes)) ? '多少前後する可能性があります。' : '',
+    meetingPlace: str_(row.meetingPlace),
+    meetingTime: str_(row.meetingTime),
+    contact: str_(row.contact),
+    dress: d.dress,
+    pay: pay && !/交通費/.test(pay) ? pay + '＋交通費' : pay,
+    meal: meal !== null ? (meal > 0 ? meal + '円支給' : '') : str_(row.meal),
+    belongings: d.belongings
+  };
+}
+
+/**
+ * スタッフに送る詳細連絡の文面。
+ * @param {Object} f detailDefaults_ の形（画面で直したもの）
+ * @param {Array} slots このスタッフが確定した日程（「案件一覧」の行）
+ */
+function detailText_(f, slots) {
+  slots = slots.slice().sort(function (a, b) { return str_(a.date) < str_(b.date) ? -1 : str_(a.date) > str_(b.date) ? 1 : 0; });
+  var times = slots.map(function (r) { return r.start ? shortTime_(r.start) + '~' + shortTime_(r.end) : ''; });
+  var sameTime = times.every(function (t) { return t === times[0]; });
+  var time = sameTime ? times[0] : slots.map(function (r, i) { return jpDate_(r) + ' ' + times[i]; }).join('\n');
+  if (time && f.timeNote) time += '\n※' + f.timeNote.replace(/^※/, '');
+
+  var parts = [
+    str_(f.title) + 'の詳細です。\n\n内容をよく読んで交通費と出発時間をお調べください。'
+  ];
+  var section = function (label, value) { if (str_(value)) parts.push('■' + label + '\n' + str_(value)); };
+  section('タイトル', f.title);
+  section('業務内容', f.work);
+  section('日程', slots.map(jpDate_).join('・'));
+  section('場所', f.place);
+  section('時間', time);
+  section('集合場所', f.meetingPlace);
+  section('集合時間', f.meetingTime);
+  if (str_(f.contact)) parts.push('■集合担当：' + str_(f.contact));
+  section('服装', f.dress);
+  section('ギャランティ', f.pay);
+  section('昼食', f.meal);
+  section('持ち物', f.belongings);
+  return parts.join('\n\n');
+}
+
+/** 詳細連絡のあとに送る、交通費と出発時間の返信のお願い */
+function travelRequestText_(title) {
+  return '【ご返信のお願い】\n' +
+    '「' + title + '」の交通費（往復）と出発時間を調べて、このトークに返信してください。\n\n' +
+    '（返信の例）\n交通費：1,060円\n出発時間：7:30\n\n' +
+    '※交通費は、ご自宅の最寄り駅から現場の最寄り駅までの往復の金額です\n' +
+    '※出発時間は、ご自宅を出発する時間です';
+}
+
+/**
+ * スタッフの返信から交通費と出発時間を読む。読めなかったものは null / ''。
+ * 「交通費：1,060円 出発時間：7:30」「1060円、7時半出発」などに対応。
+ */
+function parseTravelReply_(text) {
+  var t = toHalfWidth_(String(text || '')).replace(/，/g, ',');
+  var fare = null;
+  var m = /交通費[^\d]{0,12}?([\d,]+)/.exec(t) || /([\d,]+)\s*円/.exec(t) || /[¥￥]\s*([\d,]+)/.exec(t);
+  if (m) fare = toNum_(m[1]);
+  var depart = '';
+  var d = /出発[^\d]{0,8}?(\d{1,2})\s*(?:[:：]\s*(\d{2})|時\s*(半|\d{1,2})?)/.exec(t) ||
+    /(\d{1,2})\s*(?:[:：]\s*(\d{2})|時\s*(半|\d{1,2})?)[^\d]{0,4}出発/.exec(t);
+  if (!d && fare !== null) d = /(\d{1,2})\s*(?:[:：]\s*(\d{2})|時\s*(半|\d{1,2})?)/.exec(t.replace(m[0], ''));
+  if (d) {
+    var h = +d[1], mi = d[2] !== undefined ? +d[2] : d[3] === '半' ? 30 : d[3] ? +d[3] : 0;
+    if (h <= 23 && mi <= 59) depart = pad2_(h) + ':' + pad2_(mi);
+  }
+  return { fare: fare, departure: depart };
+}
+
+/**
+ * 返信を待っている応募（詳細連絡を送った・確定のまま・交通費か出発時間がまだ・日程が今日以降）を、
+ * 案件ごとにまとめて日程の早い順に返す。
+ * @param {Array} apps 「案件応募」の行（rowToRecord_ の形。_row にシートの行番号）
+ */
+function travelPending_(apps, userId, now) {
+  var today = ymd_(now);
+  var byCase = {};
+  var order = [];
+  apps.forEach(function (a) {
+    if (a.userId !== userId || a.status !== APPLY_STATUS.CONFIRMED || !a.detailSentAt) return;
+    if (str_(a.fare) !== '' && str_(a.departure) !== '') return;
+    var d = parseYmd_(a.date);
+    if (d && ymd_(d) < today) return;
+    if (!byCase[a.caseId]) { byCase[a.caseId] = []; order.push(a.caseId); }
+    byCase[a.caseId].push(a);
+  });
+  var key = function (a) { return ymd_(parseYmd_(a.date) || now); };
+  var groups = order.map(function (id) {
+    return byCase[id].sort(function (a, b) { return key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0; });
+  });
+  var first = function (g) { return key(g[0]); };
+  groups.sort(function (a, b) { return first(a) < first(b) ? -1 : first(a) > first(b) ? 1 : 0; });
+  return groups;
+}
+
+/** 返信を受け付けたときの返事 */
+function travelReplyText_(apps, fare, departure, rest) {
+  var a = apps[0];
+  var dates = apps.map(function (x) { return jpDate_(x); }).join('・');
+  var lines = [];
+  if (fare !== null && departure) {
+    lines.push('「' + a.title + '」（' + dates + '）の\n交通費（往復）：' + yen_(fare) + '\n出発時間：' + shortTime_(departure) +
+      '\nを受け付けました。ありがとうございます。');
+    if (rest) lines.push('続けて「' + rest[0].title + '」（' + rest.map(jpDate_).join('・') + '）の交通費と出発時間も送ってください。');
+  } else if (fare !== null) {
+    lines.push('「' + a.title + '」の交通費（往復）' + yen_(fare) + ' を受け付けました。\n出発時間も送ってください（例：出発時間：7:30）。');
+  } else {
+    lines.push('「' + a.title + '」の出発時間 ' + shortTime_(departure) + ' を受け付けました。\n交通費（往復）も送ってください（例：交通費：1,060円）。');
+  }
+  return lines.join('\n\n');
 }

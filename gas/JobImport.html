@@ -68,6 +68,7 @@
 <script>
 var PAY_BASIS = ['拘束時間', '実働時間', '日給', '記載なし'];
 var GENDER = ['男女可', '男性のみ', '女性のみ', '記載なし'];
+var ROLES = ['ST', 'AD', 'D'];
 var cases = [];
 
 function $(id) { return document.getElementById(id); }
@@ -135,7 +136,7 @@ function render() {
     }).join('');
     return '<div class="card">' +
       '<div class="card-head"><strong>案件' + (ci + 1) + '</strong><button class="small" data-del-case="' + ci + '">この案件を追加しない</button></div>' +
-      '<div class="row">' + field(ci, 'title', 'タイトル', 'w2') + field(ci, 'place', '場所') + field(ci, 'prefecture', '都道府県') + field(ci, 'position', 'ポジション', 'w2') + '</div>' +
+      '<div class="row">' + field(ci, 'title', 'タイトル', 'w2') + field(ci, 'place', '場所') + field(ci, 'prefecture', '都道府県') + field(ci, 'work', '仕事内容', 'w2') + select(ci, 'role', 'ポジション', ROLES) + '</div>' +
       '<div class="row">' + field(ci, 'address', '住所・アクセス', 'w3') + field(ci, 'contact', '現場連絡先', 'w2') + '</div>' +
       '<div class="row">' + field(ci, 'meetingTime', '集合時間') + field(ci, 'meetingPlace', '集合場所', 'w2') + field(ci, 'conditions', '募集条件', 'w2') + select(ci, 'genderReq', '性別', GENDER) + '</div>' +
       '<div class="row">' + field(ci, 'dress', '服装', 'w2', 'textarea') + field(ci, 'belongings', '持ち物', '', 'textarea') + field(ci, 'notes', '備考', 'w2', 'textarea') + '</div>' +

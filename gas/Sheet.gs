@@ -134,7 +134,8 @@ COLUMNS[JOB_SHEET] = [
   ['client', '取引先名'],
   ['title', 'タイトル'],
   ['place', '場所'],
-  ['position', 'ポジション'],
+  ['work', '仕事内容'],
+  ['role', 'ポジション'], // D / AD / ST
   ['date', '日程'],
   ['start', '開始時間'],
   ['end', '終了時間'],
@@ -185,6 +186,10 @@ COLUMNS[APPLY_SHEET] = [
   ['phone', '電話番号'],
   ['userId', 'LINEユーザーID'],
   ['notifiedAt', '結果の通知日時'],
+  ['detailSentAt', '詳細連絡日時'],
+  ['fare', '交通費（往復）'],      // スタッフからの返信
+  ['departure', '出発時間'],        // スタッフからの返信
+  ['travelRepliedAt', '交通費・出発時間の返信日時'],
   ['adminMemo', '管理メモ']
 ];
 
