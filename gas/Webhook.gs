@@ -64,6 +64,8 @@ function onText_(ev, userId, text) {
     return continueChat_(ev, userId, chat, { text: text });
   }
 
+  // 出発確認への「はい」「いいえ」
+  if (handleDepartureText_(ev, userId, text)) return;
   // 詳細連絡のあとの、交通費（往復）と出発時間の返信
   if (handleTravelReply_(ev, userId, text)) return;
 
@@ -105,6 +107,7 @@ function onPostback_(ev, userId) {
   });
   if (params.iv) onInterviewPostback_(ev, userId, params);
   if (params.job) onJobPostback_(ev, userId, params);
+  if (params.dep) onDeparturePostback_(ev, userId, params);
 }
 
 /** スタンプや画像など */

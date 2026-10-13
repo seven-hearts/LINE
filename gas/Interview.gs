@@ -384,7 +384,10 @@ function sendRejectionsNow() {
  */
 function runScheduler() {
   var sh = sheet_(REG_SHEET);
-  if (sh.getLastRow() < 2) return rebuildDirtyShiftSummaries_();
+  if (sh.getLastRow() < 2) {
+    runJobSchedulerSafe_(new Date());
+    return rebuildDirtyShiftSummaries_();
+  }
   var header = headerMap_(sh);
   var rows = sh.getRange(2, 1, sh.getLastRow() - 1, sh.getLastColumn()).getValues();
   var now = new Date();
@@ -435,7 +438,18 @@ function runScheduler() {
       }
     }
   });
+  runJobSchedulerSafe_(now);
   rebuildDirtyShiftSummaries_();
+}
+
+/** 案件の自動処理（「案件応募」の時間の同期・出発確認）。失敗しても面接の自動送信は止めない */
+function runJobSchedulerSafe_(now) {
+  try {
+    runJobScheduler_(now);
+  } catch (err) {
+    console.error('job scheduler failed', err && err.stack || err);
+    logError_('案件の自動処理', '', err);
+  }
 }
 
 function runAction_(rec, action, callUrl) {

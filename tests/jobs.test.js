@@ -445,7 +445,7 @@ test('交通費と出発時間の返信を読む', () => {
 
 test('返信を待っている応募：確定・詳細連絡済み・未返信・今日以降、日程の早い案件から', () => {
   const now = new Date(2026, 8, 20, 12, 0);
-  const app = (o) => Object.assign({ userId: 'U1', status: '確定', detailSentAt: '2026/09/19 10:00:00', fare: '', departure: '', title: 'ロハスミーツ高槻' }, o);
+  const app = (o) => Object.assign({ userId: 'U1', status: '詳細送付済', detailSentAt: '2026/09/19 10:00:00', fare: '', departure: '', title: 'ロハスミーツ高槻' }, o);
   const apps = [
     app({ caseId: 'B', date: '2026/09/25', title: '別の案件' }),
     app({ caseId: 'L', date: '2026/09/22' }),
@@ -453,6 +453,7 @@ test('返信を待っている応募：確定・詳細連絡済み・未返信�
     app({ caseId: 'X', date: '2026/09/19' }),                    // 過ぎた
     app({ caseId: 'Y', date: '2026/09/23', detailSentAt: '' }),  // 詳細連絡をまだ送っていない
     app({ caseId: 'Z', date: '2026/09/23', status: '応募' }),
+    app({ caseId: 'Q', date: '2026/09/23', status: '確定' }),       // 詳細連絡をまだ送っていない状態
     app({ caseId: 'W', date: '2026/09/23', fare: 500, departure: '07:00' }), // 返信済み
     app({ caseId: 'V', date: '2026/09/23', userId: 'U2' })
   ];
@@ -469,8 +470,8 @@ test('返信をシート「案件応募」に書き込む（Webhook）', () => {
   const { c } = geminiCtx(() => gemOk({}));
   const header = c.COLUMNS[c.APPLY_SHEET].map((x) => x[1]);
   const rows = [
-    { userId: 'U1', status: '確定', caseId: 'L', slotId: 'L-1', title: 'ロハスミーツ高槻', date: '2099/09/21', detailSentAt: '2099/09/19 10:00:00', fare: '', departure: '' },
-    { userId: 'U1', status: '確定', caseId: 'L', slotId: 'L-2', title: 'ロハスミーツ高槻', date: '2099/09/22', detailSentAt: '2099/09/19 10:00:00', fare: '', departure: '' }
+    { userId: 'U1', status: '詳細送付済', caseId: 'L', slotId: 'L-1', title: 'ロハスミーツ高槻', date: '2099/09/21', detailSentAt: '2099/09/19 10:00:00', fare: '', departure: '' },
+    { userId: 'U1', status: '詳細送付済', caseId: 'L', slotId: 'L-2', title: 'ロハスミーツ高槻', date: '2099/09/22', detailSentAt: '2099/09/19 10:00:00', fare: '', departure: '' }
   ];
   const replies = [];
   Object.assign(c, { __rows: rows, __replies: replies });
@@ -483,9 +484,11 @@ test('返信をシート「案件応募」に書き込む（Webhook）', () => {
   `, c);
   assert.strictEqual(c.handleTravelReply_({ replyToken: 'r' }, 'U1', '交通費：1,060円'), true);
   assert.deepStrictEqual(rows.map((r) => [r.fare, r.departure, r.travelRepliedAt || '']), [[1060, '', ''], [1060, '', '']]);
+  assert.deepStrictEqual(rows.map((r) => r.status), ['詳細送付済', '詳細送付済']); // 交通費だけでは変わらない
   assert.match(replies[0], /出発時間も送ってください/);
   assert.strictEqual(c.handleTravelReply_({ replyToken: 'r' }, 'U1', '出発時間 7:30'), true);
   assert.deepStrictEqual(rows.map((r) => [r.fare, r.departure, r.travelRepliedAt]), [[1060, '07:30', '2099/09/20 09:00:00'], [1060, '07:30', '2099/09/20 09:00:00']]);
+  assert.deepStrictEqual(rows.map((r) => r.status), ['出発時間確認済', '出発時間確認済']);
   assert.match(replies[1], /受け付けました。ありがとうございます/);
   // 返信を待っていない人・関係ない文章は受け付けない（担当者が手で対応）
   assert.strictEqual(c.handleTravelReply_({ replyToken: 'r' }, 'U1', '交通費：900円'), false);
@@ -587,4 +590,173 @@ test('以前の「案件一覧」の列を今の形にする：服装／持ち�
   assert.deepStrictEqual(labels.slice(11, 14), ['服装', '持ち物', '単位']);
   assert.ok(!labels.includes('支払い'));
   assert.strictEqual(labels[labels.indexOf('集合担当者名') + 1], '集合担当連絡先');
+});
+
+// ---- 出発確認 ----
+
+const depApp = (o) => Object.assign({
+  userId: 'U1', name: '山田 花子', phone: '090-1111-2222', title: 'ロハスミーツ高槻', slotId: 'L-1-1',
+  date: '2026/10/21', start: '09:00', end: '17:30', departure: '07:30', status: '出発時間確認済'
+}, o);
+
+test('出発確認：出発時間になったら送る（60分過ぎたら送らない）、10分返信がなければメール', () => {
+  const t = (h, m, d) => new Date(2026, 9, d || 21, h, m);
+  const act = (o, now) => ctx.departureAction_(depApp(o), now);
+  assert.strictEqual(act({}, t(7, 29)), '');
+  assert.strictEqual(act({}, t(7, 30)), 'check');
+  assert.strictEqual(act({}, t(8, 29)), 'check');
+  assert.strictEqual(act({}, t(8, 30)), '');
+  assert.strictEqual(act({ departCheckSentAt: '2026/10/21 07:30:05' }, t(7, 31)), '');
+  assert.strictEqual(act({ status: '詳細送付済' }, t(7, 30)), '');
+  // 送ったあと
+  const sent = { status: '出発確認中', departCheckSentAt: '2026/10/21 07:30:05' };
+  assert.strictEqual(act(sent, t(7, 39)), '');
+  assert.strictEqual(act(sent, t(7, 41)), 'alert');
+  assert.strictEqual(act(Object.assign({ departAlertAt: '2026/10/21 07:40:10' }, sent), t(7, 45)), '');
+  assert.strictEqual(act(Object.assign({ departAnswer: 'いいえ' }, sent), t(7, 45)), '');
+  assert.strictEqual(act(Object.assign({}, sent, { status: '出発確認済', departAnswer: 'はい' }), t(7, 45)), '');
+  // 開始より遅い出発時間は前日（深夜の勤務）
+  const night = depApp({ date: '2026/10/22', start: '06:00', departure: '23:30' });
+  assert.strictEqual(ctx.departureAt_(night).getDate(), 21);
+  assert.strictEqual(ctx.departureAt_(depApp({ departure: '' })), null);
+});
+
+test('出発確認のメッセージ：決まった文面と「はい」「いいえ」のボタン', () => {
+  const m = plain(ctx.departureCheckMessage_(depApp({})));
+  assert.strictEqual(m.template.type, 'confirm');
+  assert.strictEqual(m.template.text, 'おはようございます。出発時間になりました。\n\n予定通り出発しましたでしょうか？');
+  assert.ok(m.template.text.length <= 240);
+  assert.deepStrictEqual(m.template.actions.map((a) => [a.label, a.data, a.displayText]),
+    [['はい', 'dep=yes&s=L-1-1', 'はい'], ['いいえ', 'dep=no&s=L-1-1', 'いいえ']]);
+  const mail = ctx.departureAlertMail_(depApp({}), '返信がありません', 'https://sheet');
+  assert.match(mail.subject, /出発確認：山田 花子 さん（返信がありません）/);
+  assert.match(mail.body, /日程：2026\/10\/21 9:00〜17:30\n出発時間：7:30\n電話番号：090-1111-2222/);
+});
+
+test('「案件応募」の日程・開始時間・終了時間は「案件一覧」に合わせる', () => {
+  const slots = { A: { date: '2026/10/21', start: '09:30', end: '18:00' }, B: { date: '2026/10/22', start: '09:00', end: '17:30' } };
+  const apps = [
+    { _row: 2, slotId: 'A', date: '2026/10/21', start: '09:00', end: '17:30' },
+    { _row: 3, slotId: 'B', date: '2026/10/22', start: '9:00', end: '17:30' },
+    { _row: 4, slotId: 'X', date: '2026/10/22', start: '', end: '' }
+  ];
+  assert.deepStrictEqual(plain(ctx.applyTimeChanges_(apps, slots)), [{ row: 2, fields: { start: '09:30', end: '18:00' } }]);
+});
+
+function applyFlowCtx(rows) {
+  const { c } = geminiCtx(() => gemOk({}));
+  const pushes = [], replies = [], mails = [];
+  const header = {};
+  c.COLUMNS[c.APPLY_SHEET].forEach((x, i) => { header[x[1]] = i; });
+  Object.assign(c, { __rows: rows, __pushes: pushes, __replies: replies, __mails: mails, __header: header, __time: '2026/10/21 07:30:00' });
+  vm.runInContext(`
+    spreadsheet_ = function () { return { getSheetByName: function () { return {}; }, getUrl: function () { return 'https://sheet'; } }; };
+    headerMap_ = function () { return __header; };
+    readAll_ = function (sheet) {
+      if (sheet === JOB_SHEET) return [];
+      return __rows.map(function (r, i) { return { rec: Object.assign({}, r), row: i + 2 }; });
+    };
+    updateCells_ = function (sheet, row, f) { Object.assign(__rows[row - 2], f); };
+    withLock_ = function (fn) { return fn(); };
+    pushMessage_ = function (id, m) { __pushes.push([id, m]); return {}; };
+    replyMessage_ = function (t, m) { __replies.push(m[0].text); };
+    now_ = function () { return __time; };
+    MailApp = { sendEmail: function (to, s, b) { __mails.push([to, s, b]); } };
+  `, c);
+  return { c, pushes, replies, mails };
+}
+
+test('出発確認の流れ：送る→「はい」で出発確認済／返信なしで10分後にメール／「いいえ」はすぐメール', () => {
+  const rows = [depApp({}), depApp({ userId: 'U2', name: '佐藤 太郎', slotId: 'L-1-2' }), depApp({ userId: 'U3', name: '鈴木 一郎', slotId: 'L-1-3' })];
+  const { c, pushes, replies, mails } = applyFlowCtx(rows);
+  vm.runInContext("PropertiesService = { getScriptProperties: function () { return { getProperties: function () { return { ADMIN_EMAIL: 'boss@example.com' }; } }; } };", c);
+
+  c.runJobScheduler_(new Date(2026, 9, 21, 7, 30));
+  assert.strictEqual(pushes.length, 3);
+  assert.strictEqual(pushes[0][1][0].template.type, 'confirm');
+  assert.deepStrictEqual(rows.map((r) => r.status), ['出発確認中', '出発確認中', '出発確認中']);
+  c.runJobScheduler_(new Date(2026, 9, 21, 7, 31));
+  assert.strictEqual(pushes.length, 3); // 2回は送らない
+
+  // U1：ボタンで「はい」
+  c.onDeparturePostback_({ replyToken: 'r' }, 'U1', { dep: 'yes', s: 'L-1-1' });
+  assert.strictEqual(rows[0].status, '出発確認済');
+  assert.strictEqual(rows[0].departAnswer, 'はい');
+  assert.match(replies[0], /お気をつけてお越しください/);
+
+  // U2：文字で「いいえ」→ すぐメール
+  assert.strictEqual(c.handleDepartureText_({ replyToken: 'r' }, 'U2', 'いいえ'), true);
+  assert.strictEqual(rows[1].status, '出発確認中');
+  assert.strictEqual(rows[1].departAnswer, 'いいえ');
+  assert.strictEqual(mails.length, 1);
+  assert.match(mails[0][1], /佐藤 太郎 さん（出発確認に「いいえ」と回答がありました）/);
+  assert.strictEqual(mails[0][0], 'boss@example.com');
+
+  // U3：返信なし → 10分後に1回だけメール
+  c.__time = '2026/10/21 07:40:00';
+  c.runJobScheduler_(new Date(2026, 9, 21, 7, 39));
+  assert.strictEqual(mails.length, 1);
+  c.runJobScheduler_(new Date(2026, 9, 21, 7, 40));
+  c.runJobScheduler_(new Date(2026, 9, 21, 7, 41));
+  assert.strictEqual(mails.length, 2);
+  assert.match(mails[1][1], /鈴木 一郎 さん（出発確認を送ってから10分たっても返信がありません）/);
+  assert.match(mails[1][2], /電話番号：090-1111-2222/);
+
+  // 出発確認中でない人の「はい」は受け付けない（ほかの処理・担当者の対応へ）
+  assert.strictEqual(c.handleDepartureText_({ replyToken: 'r' }, 'U1', 'はい'), false);
+  assert.strictEqual(c.handleDepartureText_({ replyToken: 'r' }, 'U3', 'はい、わかりました'), false);
+});
+
+test('「案件応募」の列がそろっていない（setup 前）ときは出発確認を送らない', () => {
+  const rows = [depApp({})];
+  const { c, pushes } = applyFlowCtx(rows);
+  vm.runInContext("headerMap_ = function () { return { '状態': 1 }; };", c);
+  c.runJobScheduler_(new Date(2026, 9, 21, 7, 30));
+  assert.strictEqual(pushes.length, 0);
+});
+
+test('以前の「案件応募」：G列「時間」を「開始時間」「終了時間」に分ける', () => {
+  const { c } = geminiCtx(() => gemOk({}));
+  const grid = [['応募日時', '状態', '枠ID', '案件ID', 'タイトル', '日程', '時間', '氏名'], ['x', '確定', 'A', 'a', 't', '2026/10/21', '08:30〜15:30', '山田']];
+  const sheet = {
+    getLastColumn: () => grid[0].length,
+    getLastRow: () => grid.length,
+    getRange: (r, col, nr, nc) => ({
+      getValues: () => grid.slice(r - 1, r - 1 + (nr || 1)).map((row) => row.slice(col - 1, col - 1 + (nc || 1))),
+      setValues: (vals) => vals.forEach((v, k) => { grid[r - 1 + k].splice(col - 1, v.length, ...v); })
+    }),
+    insertColumnAfter: (col) => grid.forEach((row) => row.splice(col, 0, ''))
+  };
+  c.migrateApplyColumns_(sheet);
+  assert.deepStrictEqual(grid[0].slice(5, 9), ['日程', '開始時間', '終了時間', '氏名']);
+  assert.deepStrictEqual(grid[1].slice(5, 9), ['2026/10/21', '08:30', '15:30', '山田']);
+  // 状態の選択肢
+  assert.deepStrictEqual(Object.values(plain(c.APPLY_STATUS)).slice(2, 10),
+    ['詳細送付済', '出発時間確認済', '出発確認済', '出発確認中', '出勤', '遅刻', '連絡欠勤', '無断欠勤']);
+  const labels = plain(c.COLUMNS[c.APPLY_SHEET].map((x) => x[1]));
+  assert.deepStrictEqual(labels.slice(1, 2).concat(labels.slice(6, 8)), ['状態', '開始時間', '終了時間']); // B列・G列・H列
+});
+
+test('詳細連絡を送ると「詳細送付済」になり、前の返信・出発確認は消える（送り直し）', () => {
+  const rows = [
+    { userId: 'U1', name: '山田 花子', status: '確定', caseId: 'L-1', slotId: 'L-1-1', title: 'ロハスミーツ高槻', date: '2099/09/21' },
+    { userId: 'U2', name: '佐藤 太郎', status: '出発時間確認済', caseId: 'L-1', slotId: 'L-1-1', title: 'ロハスミーツ高槻', date: '2099/09/21',
+      detailSentAt: 'x', fare: 1060, departure: '07:30', travelRepliedAt: 'y' },
+    { userId: 'U3', name: '鈴木 一郎', status: '見送り', caseId: 'L-1', slotId: 'L-1-1', title: 'ロハスミーツ高槻', date: '2099/09/21' }
+  ];
+  const { c, pushes } = applyFlowCtx(rows);
+  const job = Object.assign({}, lohas[0], { date: '2099/09/21', slotId: 'L-1-1', caseId: 'L-1' });
+  Object.assign(c, { __job: job });
+  vm.runInContext(`
+    var __readApply = readAll_;
+    readAll_ = function (sheet) { return sheet === JOB_SHEET ? [{ rec: Object.assign({}, __job), row: 2 }] : __readApply(sheet); };
+  `, c);
+  vm.runInContext('SpreadsheetApp = { getActiveSheet: function () { return null; } };', c);
+  const init = plain(c.detailSendInit());
+  assert.deepStrictEqual(init.cases[0].staff.map((s) => s.name), ['山田 花子', '佐藤 太郎']); // 見送りは出ない
+  const r = plain(c.detailSend({ caseId: 'L-1', userIds: ['U1', 'U2'], fields: init.cases[0].fields }));
+  assert.deepStrictEqual(r.sent, ['山田 花子', '佐藤 太郎']);
+  assert.strictEqual(pushes.length, 2);
+  assert.deepStrictEqual(rows.map((x) => x.status), ['詳細送付済', '詳細送付済', '見送り']);
+  assert.deepStrictEqual([rows[1].fare, rows[1].departure, rows[1].travelRepliedAt], ['', '', '']);
 });

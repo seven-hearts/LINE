@@ -197,8 +197,9 @@ COLUMNS[APPLY_SHEET] = [
   ['slotId', '枠ID'],
   ['caseId', '案件ID'],
   ['title', 'タイトル'],
-  ['date', '日程'],
-  ['time', '時間'],
+  ['date', '日程'],          // 「案件一覧」と同じ（変えると自動で反映）
+  ['start', '開始時間'],     // 〃
+  ['end', '終了時間'],       // 〃
   ['name', '氏名'],
   ['phone', '電話番号'],
   ['userId', 'LINEユーザーID'],
@@ -207,6 +208,10 @@ COLUMNS[APPLY_SHEET] = [
   ['fare', '交通費（往復）'],      // スタッフからの返信
   ['departure', '出発時間'],        // スタッフからの返信
   ['travelRepliedAt', '交通費・出発時間の返信日時'],
+  ['departCheckSentAt', '出発確認の送信日時'],
+  ['departAnswer', '出発確認の回答'],
+  ['departAnsweredAt', '出発確認の回答日時'],
+  ['departAlertAt', '担当者への通知日時'],
   ['adminMemo', '管理メモ']
 ];
 

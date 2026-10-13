@@ -19,6 +19,7 @@ function setupJobSheets_(ss) {
   migrateWorkColumn_(ss.getSheetByName(JOB_SHEET));
   migrateJobColumns_(ss.getSheetByName(JOB_SHEET));
   var jobs = ensureSheet_(ss, JOB_SHEET);
+  migrateApplyColumns_(ss.getSheetByName(APPLY_SHEET));
   ensureSheet_(ss, APPLY_SHEET);
   ensureSheet_(ss, IMPORT_SHEET);
 
@@ -553,7 +554,7 @@ function onJobPostback_(ev, userId, params) {
     var s = slot.rec;
     appendRecords_(APPLY_SHEET, [{
       appliedAt: now_(), status: APPLY_STATUS.APPLIED, slotId: s.slotId, caseId: s.caseId, title: s.title,
-      date: s.date, time: [s.start, s.end].filter(Boolean).join('〜'),
+      date: s.date, start: s.start, end: s.end,
       name: fullName_(staff), phone: staff.phone, userId: userId
     }]);
     var count = apps.filter(function (x) { return x.rec.slotId === s.slotId && x.rec.status !== APPLY_STATUS.CANCELLED; }).length + 1;
@@ -611,7 +612,7 @@ function confirmedByCase_(now) {
   readAll_(APPLY_SHEET).forEach(function (x) {
     var a = x.rec;
     a._row = x.row;
-    if (a.status !== APPLY_STATUS.CONFIRMED || !a.userId || !slots[a.slotId]) return;
+    if (ASSIGNED_STATUSES.indexOf(a.status) < 0 || !a.userId || !slots[a.slotId]) return;
     var d = parseYmd_(a.date);
     if (d && ymd_(d) < today) return;
     if (!cases[a.caseId]) { cases[a.caseId] = { caseId: a.caseId, staff: {}, staffOrder: [] }; order.push(a.caseId); }
@@ -704,7 +705,10 @@ function detailSend(req) {
       sent.push(s.name);
       // 送り直したときは、前の返信を消して、もう一度返信してもらう
       s.apps.forEach(function (a) {
-        updateCells_(APPLY_SHEET, a._row, { detailSentAt: now_(), fare: '', departure: '', travelRepliedAt: '' });
+        updateCells_(APPLY_SHEET, a._row, {
+          status: APPLY_STATUS.DETAIL_SENT, detailSentAt: now_(), fare: '', departure: '', travelRepliedAt: '',
+          departCheckSentAt: '', departAnswer: '', departAnsweredAt: '', departAlertAt: ''
+        });
       });
     } else {
       failed.push(s.name);
@@ -764,6 +768,8 @@ function handleTravelReply_(ev, userId, text) {
       if (fare !== null) f.fare = fare;
       if (departure) f.departure = departure;
       if (fare !== null && departure) f.travelRepliedAt = now_();
+      // 出発時間がわかったら「出発時間確認済」（出発時間になると出発確認を送る）
+      if (departure) f.status = APPLY_STATUS.DEPART_TIME_OK;
       updateCells_(APPLY_SHEET, a._row, f);
     });
     var done = fare !== null && departure;
@@ -772,5 +778,125 @@ function handleTravelReply_(ev, userId, text) {
   if (!reply) return false;
   replyMessage_(ev.replyToken, [textMessage_(reply)]);
   return true;
+}
+
+// ---- 「案件応募」の列の移行・時間の同期・出発確認 ----
+
+/** 以前の「案件応募」（G列「時間」に「08:30〜15:30」）を「開始時間」「終了時間」の2列にする */
+function migrateApplyColumns_(sh) {
+  if (!sh || !sh.getLastColumn()) return;
+  splitColumn_(sh, '時間', '開始時間', '終了時間', function (v) {
+    var p = v.split(/[〜~～-]/);
+    return [normalizeTime_(p[0]), normalizeTime_(p[1] || '')];
+  });
+}
+
+/** 「案件応募」の日程・開始時間・終了時間を「案件一覧」に合わせる（案件一覧を編集したとき・1分ごと） */
+function syncApplyTimes_() {
+  var ss = spreadsheet_();
+  if (!ss.getSheetByName(APPLY_SHEET) || !ss.getSheetByName(JOB_SHEET)) return;
+  var slots = {};
+  readAll_(JOB_SHEET).forEach(function (x) { if (x.rec.slotId) slots[x.rec.slotId] = x.rec; });
+  var apps = readAll_(APPLY_SHEET).map(function (x) { x.rec._row = x.row; return x.rec; });
+  applyTimeChanges_(apps, slots).forEach(function (c) { updateCells_(APPLY_SHEET, c.row, c.fields); });
+}
+
+/** 「案件一覧」を手で編集したとき（onStatusEdit から） */
+function onJobSheetEdit_(e) {
+  var header = headerMap_(e.range.getSheet());
+  var cols = ['日程', '開始時間', '終了時間'].map(function (l) { return header[l] + 1; });
+  var from = e.range.getColumn(), to = e.range.getLastColumn();
+  if (!cols.some(function (c) { return c >= from && c <= to; })) return;
+  syncApplyTimes_();
+}
+
+/** 1分ごと（runScheduler から）：時間の同期と出発確認 */
+function runJobScheduler_(now) {
+  var ss = spreadsheet_();
+  var apply = ss.getSheetByName(APPLY_SHEET);
+  if (!apply) return;
+  var header = headerMap_(apply);
+  // setup を実行し直していない（列がない）と送信の記録が残せず、1分ごとに送り続けてしまうため何もしない
+  if (header['開始時間'] === undefined || header['出発確認の送信日時'] === undefined || header['担当者への通知日時'] === undefined) return;
+  syncApplyTimes_();
+  readAll_(APPLY_SHEET).forEach(function (x) {
+    var app = x.rec;
+    if (!app.userId) return;
+    var action = departureAction_(app, now);
+    if (!action) return;
+    try {
+      if (action === 'check') {
+        if (pushMessage_(app.userId, [departureCheckMessage_(app)])) {
+          updateCells_(APPLY_SHEET, x.row, { status: APPLY_STATUS.DEPART_CHECKING, departCheckSentAt: now_() });
+        } else {
+          updateCells_(APPLY_SHEET, x.row, { departCheckSentAt: now_(), adminMemo: appendMemo_(app.adminMemo, '出発確認を送れませんでした') });
+          sendDepartureAlert_(app, '出発確認を LINE で送れませんでした');
+        }
+      } else if (action === 'alert') {
+        sendDepartureAlert_(app, '出発確認を送ってから' + DEPART_ALERT_MINUTES + '分たっても返信がありません');
+        updateCells_(APPLY_SHEET, x.row, { departAlertAt: now_() });
+      }
+    } catch (err) {
+      console.error('departure check failed', action, app.userId, err && err.stack || err);
+      logError_('出発確認：' + action, app.userId, err);
+    }
+  });
+}
+
+/** 担当者（ADMIN_EMAIL）にメールで知らせる。未設定ならエラーログに残す */
+function sendDepartureAlert_(app, reason) {
+  var to = getConfig_().adminEmail;
+  var mail = departureAlertMail_(app, reason, spreadsheet_().getUrl());
+  if (!to) {
+    logError_('出発確認（ADMIN_EMAIL が未設定のためメールを送れません）', app.userId, new Error(mail.subject));
+    return;
+  }
+  MailApp.sendEmail(to, mail.subject, mail.body);
+}
+
+/** 出発確認への回答（ボタン「はい」「いいえ」、または「はい」「いいえ」と文字で送ったとき） */
+function answerDeparture_(ev, userId, slotId, yes) {
+  var result = withLock_(function () {
+    var target = null;
+    readAll_(APPLY_SHEET).forEach(function (x) {
+      var a = x.rec;
+      if (a.userId !== userId || a.status !== APPLY_STATUS.DEPART_CHECKING) return;
+      if (slotId && a.slotId !== slotId) return;
+      a._row = x.row;
+      // 文字で答えたときは、いちばん最近に確認を送ったものへの回答とみなす
+      if (!target || str_(a.departCheckSentAt) > str_(target.departCheckSentAt)) target = a;
+    });
+    if (!target) return null;
+    var fields = { departAnswer: yes ? 'はい' : 'いいえ', departAnsweredAt: now_() };
+    if (yes) fields.status = APPLY_STATUS.DEPART_OK;
+    updateCells_(APPLY_SHEET, target._row, fields);
+    return target;
+  });
+  if (!result) return false;
+  replyMessage_(ev.replyToken, [textMessage_(yes ? departureYesText_() : departureNoText_())]);
+  if (!yes) {
+    try {
+      sendDepartureAlert_(result, '出発確認に「いいえ」と回答がありました');
+      updateCells_(APPLY_SHEET, result._row, { departAlertAt: now_() });
+    } catch (err) {
+      logError_('出発確認：いいえ', userId, err);
+    }
+  }
+  return true;
+}
+
+/** ボタンが押されたとき（Webhook の onPostback_ から） */
+function onDeparturePostback_(ev, userId, params) {
+  if (params.dep !== 'yes' && params.dep !== 'no') return;
+  if (!answerDeparture_(ev, userId, params.s, params.dep === 'yes')) {
+    replyMessage_(ev.replyToken, [textMessage_('ご回答ありがとうございます。')]);
+  }
+}
+
+/** 「はい」「いいえ」と文字で送ったとき。出発確認中でなければ false（ほかの処理・担当者の対応へ） */
+function handleDepartureText_(ev, userId, text) {
+  var m = /^\s*(はい|いいえ)[。！!、\s]*$/.exec(text);
+  if (!m) return false;
+  return answerDeparture_(ev, userId, '', m[1] === 'はい');
 }
 

@@ -8,7 +8,29 @@
  */
 
 var RECRUIT = { OPEN: '募集中', CLOSED: '募集終了' };
-var APPLY_STATUS = { APPLIED: '応募', CONFIRMED: '確定', DECLINED: '見送り', CANCELLED: '辞退' };
+var APPLY_STATUS = {
+  APPLIED: '応募',
+  CONFIRMED: '確定',              // 担当者が設定 → 確定の連絡を自動送信
+  DETAIL_SENT: '詳細送付済',       // 詳細連絡を送ると自動
+  DEPART_TIME_OK: '出発時間確認済', // スタッフから出発時間の返信が来ると自動
+  DEPART_OK: '出発確認済',         // 出発確認に「はい」と答えると自動
+  DEPART_CHECKING: '出発確認中',    // 出発時間に確認を送ると自動（10分返信がなければメール）
+  ARRIVED: '出勤',                // ここから下は担当者が設定
+  LATE: '遅刻',
+  ABSENT_NOTICE: '連絡欠勤',
+  ABSENT: '無断欠勤',
+  DECLINED: '見送り',             // 担当者が設定 → お断りの連絡を自動送信
+  CANCELLED: '辞退'
+};
+
+/** 仕事が決まっている状態（詳細連絡を送れる・送り直せる） */
+var ASSIGNED_STATUSES = [APPLY_STATUS.CONFIRMED, APPLY_STATUS.DETAIL_SENT, APPLY_STATUS.DEPART_TIME_OK,
+  APPLY_STATUS.DEPART_CHECKING, APPLY_STATUS.DEPART_OK];
+
+/** 出発確認に返信がないとき、担当者にメールするまでの時間（分） */
+var DEPART_ALERT_MINUTES = 10;
+/** 出発時間を過ぎてもこの時間内なら出発確認を送る（自動処理が止まっていた場合など） */
+var DEPART_CHECK_WINDOW_MINUTES = 60;
 var INVOICE_OPTIONS = ['未', '発行済', '入金済'];
 /** ポジション（D：ディレクター／AD：アシスタントディレクター／ST：スタッフ） */
 var ROLES = ['D', 'AD', 'ST'];
@@ -525,16 +547,23 @@ function applyAcceptedText_(slot) {
     '\n\n担当者が確認して、このトークで結果をお知らせします。';
 }
 
+/** 「08:30」「15:30」→「8:30〜15:30」 */
+function appTimeText_(app) {
+  var s = normalizeTime_(app.start), e = normalizeTime_(app.end);
+  if (!s) return '';
+  return shortTime_(s) + '〜' + (e ? shortTime_(e) : '');
+}
+
 /** 「確定」にしたときの連絡（集合場所などの詳細は、あとで担当者が「詳細連絡を送る」から送る） */
 function applyConfirmedText_(app) {
   return app.name + ' さん\n\nお仕事が確定しました！よろしくお願いいたします。\n\n' +
-    '■ ' + app.title + '\n📅 ' + app.date + ' ' + app.time + '\n\n' +
+    '■ ' + app.title + '\n📅 ' + app.date + ' ' + appTimeText_(app) + '\n\n' +
     '集合場所・持ち物などの詳細は、後日このトークでお送りします。\n' +
     'ご都合が悪くなった場合は、すぐにこのトークでお知らせください。';
 }
 
 function applyDeclinedText_(app) {
-  return app.name + ' さん\n\n「' + app.title + '」（' + app.date + ' ' + app.time + '）にご応募いただき、ありがとうございました。\n\n' +
+  return app.name + ' さん\n\n「' + app.title + '」（' + app.date + ' ' + appTimeText_(app) + '）にご応募いただき、ありがとうございました。\n\n' +
     '今回は定員に達したため、ご案内できませんでした。またのご応募をお待ちしています。';
 }
 
@@ -687,7 +716,7 @@ function parseTravelReply_(text) {
 }
 
 /**
- * 返信を待っている応募（詳細連絡を送った・確定のまま・交通費か出発時間がまだ・日程が今日以降）を、
+ * 返信を待っている応募（詳細送付済か出発時間確認済・交通費か出発時間がまだ・日程が今日以降）を、
  * 案件ごとにまとめて日程の早い順に返す。
  * @param {Array} apps 「案件応募」の行（rowToRecord_ の形。_row にシートの行番号）
  */
@@ -696,7 +725,8 @@ function travelPending_(apps, userId, now) {
   var byCase = {};
   var order = [];
   apps.forEach(function (a) {
-    if (a.userId !== userId || a.status !== APPLY_STATUS.CONFIRMED || !a.detailSentAt) return;
+    if (a.userId !== userId || !a.detailSentAt) return;
+    if (a.status !== APPLY_STATUS.DETAIL_SENT && a.status !== APPLY_STATUS.DEPART_TIME_OK) return;
     if (str_(a.fare) !== '' && str_(a.departure) !== '') return;
     var d = parseYmd_(a.date);
     if (d && ymd_(d) < today) return;
@@ -728,3 +758,97 @@ function travelReplyText_(apps, fare, departure, rest) {
   }
   return lines.join('\n\n');
 }
+
+// ---- 出発確認（出発時間になったら「予定通り出発しましたか？」を送る） ----
+
+/**
+ * 出発する日時（日程＋出発時間）。出発時間が開始時刻より遅ければ前日の出発とみなす（深夜・早朝の勤務）。
+ */
+function departureAt_(app) {
+  var d = parseYmd_(app.date);
+  var dep = minutesOf_(app.departure);
+  if (!d || dep === null) return null;
+  var at = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, dep);
+  var start = minutesOf_(app.start);
+  if (start !== null && dep > start) at = new Date(at.getTime() - 24 * 3600000);
+  return at;
+}
+
+/**
+ * 今すること：'check'（出発確認を送る）／'alert'（返信がないので担当者にメール）／''
+ */
+function departureAction_(app, now) {
+  if (app.status === APPLY_STATUS.DEPART_TIME_OK && !app.departCheckSentAt) {
+    var at = departureAt_(app);
+    if (at && now >= at && now < new Date(at.getTime() + DEPART_CHECK_WINDOW_MINUTES * 60000)) return 'check';
+    return '';
+  }
+  if (app.status === APPLY_STATUS.DEPART_CHECKING && !app.departAnswer && !app.departAlertAt) {
+    var sent = parseTimestamp_(app.departCheckSentAt);
+    if (sent && now >= new Date(sent.getTime() + DEPART_ALERT_MINUTES * 60000)) return 'alert';
+  }
+  return '';
+}
+
+/** 出発確認のメッセージ（「はい」「いいえ」のボタン付き） */
+function departureCheckMessage_(app) {
+  var text = 'おはようございます。出発時間になりました。\n\n予定通り出発しましたでしょうか？';
+  var data = function (ans) { return 'dep=' + ans + '&s=' + encodeURIComponent(app.slotId); };
+  return {
+    type: 'template',
+    altText: text,
+    template: {
+      type: 'confirm',
+      text: text,
+      actions: [
+        { type: 'postback', label: 'はい', data: data('yes'), displayText: 'はい' },
+        { type: 'postback', label: 'いいえ', data: data('no'), displayText: 'いいえ' }
+      ]
+    }
+  };
+}
+
+function departureYesText_() {
+  return 'ご連絡ありがとうございます。\nお気をつけてお越しください。本日もよろしくお願いいたします。';
+}
+
+function departureNoText_() {
+  return 'ご連絡ありがとうございます。\n担当者から連絡しますので、このトークで今の状況（到着できそうな時刻など）を教えてください。';
+}
+
+/** 担当者へのメール（返信がない・「いいえ」と答えた） */
+function departureAlertMail_(app, reason, sheetUrl) {
+  var subject = '[セブンハーツ] 出発確認：' + app.name + ' さん（' + reason + '）';
+  var body = [
+    app.name + ' さんの出発確認について、' + reason + '。',
+    '',
+    '案件：' + app.title,
+    '日程：' + app.date + ' ' + appTimeText_(app),
+    '出発時間：' + shortTime_(app.departure),
+    '電話番号：' + (app.phone || '（未登録）'),
+    '',
+    '状況を確認して、「案件応募」の状態を「出勤」「遅刻」「連絡欠勤」「無断欠勤」などに変えてください。',
+    sheetUrl || ''
+  ].join('\n');
+  return { subject: subject, body: body };
+}
+
+/**
+ * 「案件応募」の日程・開始時間・終了時間を「案件一覧」に合わせる。変わったところだけ返す。
+ * @param {Array} apps 「案件応募」の行（_row 付き）
+ * @param {Object} slots 枠ID → 「案件一覧」の行
+ */
+function applyTimeChanges_(apps, slots) {
+  var changes = [];
+  apps.forEach(function (a) {
+    var s = slots[a.slotId];
+    if (!s) return;
+    var want = { date: str_(s.date), start: normalizeTime_(s.start), end: normalizeTime_(s.end) };
+    var have = { date: str_(a.date), start: normalizeTime_(a.start), end: normalizeTime_(a.end) };
+    var diff = {};
+    Object.keys(want).forEach(function (k) { if (want[k] !== have[k]) diff[k] = want[k]; });
+    if (Object.keys(diff).length) changes.push({ row: a._row, fields: diff });
+  });
+  return changes;
+}
+
