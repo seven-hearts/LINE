@@ -36,6 +36,9 @@ function setupJobSheets_(ss) {
 
   var apply = ss.getSheetByName(APPLY_SHEET);
   var statusValues = Object.keys(APPLY_STATUS).map(function (k) { return APPLY_STATUS[k]; });
+  var workValues = Object.keys(WORK_STATUS).map(function (k) { return WORK_STATUS[k]; });
+  apply.getRange(2, headerMap_(apply)['勤務ステータス'] + 1, apply.getMaxRows() - 1, 1).setDataValidation(
+    SpreadsheetApp.newDataValidation().requireValueInList(workValues, true).setAllowInvalid(false).build());
   apply.getRange(2, headerMap_(apply)['状態'] + 1, apply.getMaxRows() - 1, 1).setDataValidation(
     SpreadsheetApp.newDataValidation().requireValueInList(statusValues, true).setAllowInvalid(false).build());
   apply.getRange(2, headerMap_(apply)['交通費（往復）'] + 1, apply.getMaxRows() - 1, 1).setNumberFormat('¥#,##0');
@@ -64,9 +67,12 @@ function migrateJobColumns_(sh) {
 /** 見出し oldLabel の列を、newLabel とその右隣の nextLabel の2列に分ける（split が値を2つに分ける） */
 function splitColumn_(sh, oldLabel, newLabel, nextLabel, split) {
   var header = headerMap_(sh);
-  if (header[oldLabel] === undefined || header[newLabel] !== undefined) return;
+  if (header[oldLabel] === undefined || header[nextLabel] !== undefined) return;
+  if (newLabel !== oldLabel && header[newLabel] !== undefined) return;
   var col = header[oldLabel] + 1;
   sh.insertColumnAfter(col);
+  // 入れた列は左の列の入力規則（選択肢）を引き継ぐため、いったん外す（setup で付け直す）
+  if (sh.getMaxRows() > 1) sh.getRange(2, col + 1, sh.getMaxRows() - 1, 1).clearDataValidations();
   sh.getRange(1, col, 1, 2).setValues([[newLabel, nextLabel]]);
   var n = sh.getLastRow() - 1;
   if (n < 1) return;
@@ -612,7 +618,7 @@ function confirmedByCase_(now) {
   readAll_(APPLY_SHEET).forEach(function (x) {
     var a = x.rec;
     a._row = x.row;
-    if (ASSIGNED_STATUSES.indexOf(a.status) < 0 || !a.userId || !slots[a.slotId]) return;
+    if (a.status !== APPLY_STATUS.CONFIRMED || !a.userId || !slots[a.slotId]) return;
     var d = parseYmd_(a.date);
     if (d && ymd_(d) < today) return;
     if (!cases[a.caseId]) { cases[a.caseId] = { caseId: a.caseId, staff: {}, staffOrder: [] }; order.push(a.caseId); }
@@ -706,7 +712,7 @@ function detailSend(req) {
       // 送り直したときは、前の返信を消して、もう一度返信してもらう
       s.apps.forEach(function (a) {
         updateCells_(APPLY_SHEET, a._row, {
-          status: APPLY_STATUS.DETAIL_SENT, detailSentAt: now_(), fare: '', departure: '', travelRepliedAt: '',
+          workStatus: WORK_STATUS.DETAIL_SENT, detailSentAt: now_(), fare: '', departure: '', travelRepliedAt: '',
           departCheckSentAt: '', departAnswer: '', departAnsweredAt: '', departAlertAt: ''
         });
       });
@@ -769,7 +775,7 @@ function handleTravelReply_(ev, userId, text) {
       if (departure) f.departure = departure;
       if (fare !== null && departure) f.travelRepliedAt = now_();
       // 出発時間がわかったら「出発時間確認済」（出発時間になると出発確認を送る）
-      if (departure) f.status = APPLY_STATUS.DEPART_TIME_OK;
+      if (departure) f.workStatus = WORK_STATUS.DEPART_TIME_OK;
       updateCells_(APPLY_SHEET, a._row, f);
     });
     var done = fare !== null && departure;
@@ -788,6 +794,10 @@ function migrateApplyColumns_(sh) {
   splitColumn_(sh, '時間', '開始時間', '終了時間', function (v) {
     var p = v.split(/[〜~～-]/);
     return [normalizeTime_(p[0]), normalizeTime_(p[1] || '')];
+  });
+  // 「状態」に入っていた勤務の進み具合（詳細送付済など）を、隣の「勤務ステータス」に移す
+  splitColumn_(sh, '状態', '状態', '勤務ステータス', function (v) {
+    return applyStatusSplit_(v);
   });
 }
 
@@ -817,17 +827,29 @@ function runJobScheduler_(now) {
   if (!apply) return;
   var header = headerMap_(apply);
   // setup を実行し直していない（列がない）と送信の記録が残せず、1分ごとに送り続けてしまうため何もしない
-  if (header['開始時間'] === undefined || header['出発確認の送信日時'] === undefined || header['担当者への通知日時'] === undefined) return;
+  var needed = ['勤務ステータス', '開始時間', '出発確認の送信日時', '担当者への通知日時', '終了確認の送信日時', '終了報告の日時'];
+  if (needed.some(function (l) { return header[l] === undefined; })) return;
   syncApplyTimes_();
   readAll_(APPLY_SHEET).forEach(function (x) {
     var app = x.rec;
     if (!app.userId) return;
+    if (endCheckDue_(app, now)) {
+      try {
+        // 送れなかったときも記録して、1分ごとに送り直し続けないようにする
+        var ok = pushMessage_(app.userId, [textMessage_(endCheckText_())]);
+        var f = { endCheckSentAt: now_() };
+        if (!ok) f.adminMemo = appendMemo_(app.adminMemo, '終了確認を送れませんでした');
+        updateCells_(APPLY_SHEET, x.row, f);
+      } catch (err) {
+        logError_('終了確認', app.userId, err);
+      }
+    }
     var action = departureAction_(app, now);
     if (!action) return;
     try {
       if (action === 'check') {
         if (pushMessage_(app.userId, [departureCheckMessage_(app)])) {
-          updateCells_(APPLY_SHEET, x.row, { status: APPLY_STATUS.DEPART_CHECKING, departCheckSentAt: now_() });
+          updateCells_(APPLY_SHEET, x.row, { workStatus: WORK_STATUS.DEPART_CHECKING, departCheckSentAt: now_() });
         } else {
           updateCells_(APPLY_SHEET, x.row, { departCheckSentAt: now_(), adminMemo: appendMemo_(app.adminMemo, '出発確認を送れませんでした') });
           sendDepartureAlert_(app, '出発確認を LINE で送れませんでした');
@@ -860,7 +882,7 @@ function answerDeparture_(ev, userId, slotId, yes) {
     var target = null;
     readAll_(APPLY_SHEET).forEach(function (x) {
       var a = x.rec;
-      if (a.userId !== userId || a.status !== APPLY_STATUS.DEPART_CHECKING) return;
+      if (a.userId !== userId || a.status !== APPLY_STATUS.CONFIRMED || a.workStatus !== WORK_STATUS.DEPART_CHECKING) return;
       if (slotId && a.slotId !== slotId) return;
       a._row = x.row;
       // 文字で答えたときは、いちばん最近に確認を送ったものへの回答とみなす
@@ -868,7 +890,7 @@ function answerDeparture_(ev, userId, slotId, yes) {
     });
     if (!target) return null;
     var fields = { departAnswer: yes ? 'はい' : 'いいえ', departAnsweredAt: now_() };
-    if (yes) fields.status = APPLY_STATUS.DEPART_OK;
+    if (yes) fields.workStatus = WORK_STATUS.DEPART_OK;
     updateCells_(APPLY_SHEET, target._row, fields);
     return target;
   });
@@ -891,6 +913,23 @@ function onDeparturePostback_(ev, userId, params) {
   if (!answerDeparture_(ev, userId, params.s, params.dep === 'yes')) {
     replyMessage_(ev.replyToken, [textMessage_('ご回答ありがとうございます。')]);
   }
+}
+
+/** 終了確認への返信（Webhook の onText_ から）。終了報告として受け付けたら true */
+function handleEndReport_(ev, userId, text) {
+  var hit = withLock_(function () {
+    var apps = readAll_(APPLY_SHEET).map(function (x) { x.rec._row = x.row; return x.rec; });
+    var t = endReportTarget_(apps, userId, new Date());
+    if (!t) return null;
+    var report = t.mode === 'report' ? text : str_(t.app.endReport) + '\n' + text;
+    var f = { endReport: report.slice(0, 2000) };
+    if (t.mode === 'report') f.endReportAt = now_();
+    updateCells_(APPLY_SHEET, t.app._row, f);
+    return t;
+  });
+  if (!hit) return false;
+  if (hit.mode === 'report') replyMessage_(ev.replyToken, [textMessage_(endThanksText_())]);
+  return true;
 }
 
 /** 「はい」「いいえ」と文字で送ったとき。出発確認中でなければ false（ほかの処理・担当者の対応へ） */

@@ -193,7 +193,8 @@ COLUMNS[JOB_SHEET] = [
 
 COLUMNS[APPLY_SHEET] = [
   ['appliedAt', '応募日時'],
-  ['status', '状態'],
+  ['status', '状態'],              // 応募・確定・見送り・辞退
+  ['workStatus', '勤務ステータス'], // 詳細送付済〜出勤・欠勤など（Jobs.gs の WORK_STATUS）
   ['slotId', '枠ID'],
   ['caseId', '案件ID'],
   ['title', 'タイトル'],
@@ -212,6 +213,9 @@ COLUMNS[APPLY_SHEET] = [
   ['departAnswer', '出発確認の回答'],
   ['departAnsweredAt', '出発確認の回答日時'],
   ['departAlertAt', '担当者への通知日時'],
+  ['endCheckSentAt', '終了確認の送信日時'],
+  ['endReport', '終了報告（返信内容）'],
+  ['endReportAt', '終了報告の日時'],
   ['adminMemo', '管理メモ']
 ];
 

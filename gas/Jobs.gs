@@ -8,9 +8,16 @@
  */
 
 var RECRUIT = { OPEN: '募集中', CLOSED: '募集終了' };
+/** 「案件応募」の状態（B列）。担当者が設定する */
 var APPLY_STATUS = {
-  APPLIED: '応募',
-  CONFIRMED: '確定',              // 担当者が設定 → 確定の連絡を自動送信
+  APPLIED: '応募',     // スタッフが応募ボタンを押した
+  CONFIRMED: '確定',   // 担当者が設定 → 確定の連絡を自動送信
+  DECLINED: '見送り',  // 担当者が設定 → お断りの連絡を自動送信
+  CANCELLED: '辞退'
+};
+
+/** 「案件応募」の勤務ステータス（状態の隣の列）。確定した人の当日までの進み具合 */
+var WORK_STATUS = {
   DETAIL_SENT: '詳細送付済',       // 詳細連絡を送ると自動
   DEPART_TIME_OK: '出発時間確認済', // スタッフから出発時間の返信が来ると自動
   DEPART_OK: '出発確認済',         // 出発確認に「はい」と答えると自動
@@ -18,14 +25,17 @@ var APPLY_STATUS = {
   ARRIVED: '出勤',                // ここから下は担当者が設定
   LATE: '遅刻',
   ABSENT_NOTICE: '連絡欠勤',
-  ABSENT: '無断欠勤',
-  DECLINED: '見送り',             // 担当者が設定 → お断りの連絡を自動送信
-  CANCELLED: '辞退'
+  ABSENT: '無断欠勤'
 };
 
-/** 仕事が決まっている状態（詳細連絡を送れる・送り直せる） */
-var ASSIGNED_STATUSES = [APPLY_STATUS.CONFIRMED, APPLY_STATUS.DETAIL_SENT, APPLY_STATUS.DEPART_TIME_OK,
-  APPLY_STATUS.DEPART_CHECKING, APPLY_STATUS.DEPART_OK];
+/** 以前の「状態」の値 → [状態, 勤務ステータス]（以前は勤務の進み具合も「状態」に入れていた） */
+function applyStatusSplit_(v) {
+  var works = Object.keys(WORK_STATUS).map(function (k) { return WORK_STATUS[k]; });
+  return works.indexOf(v) >= 0 ? [APPLY_STATUS.CONFIRMED, v] : [v, ''];
+}
+
+/** 欠勤（終了確認を送らない） */
+var ABSENT_STATUSES = [WORK_STATUS.ABSENT_NOTICE, WORK_STATUS.ABSENT];
 
 /** 出発確認に返信がないとき、担当者にメールするまでの時間（分） */
 var DEPART_ALERT_MINUTES = 10;
@@ -716,7 +726,7 @@ function parseTravelReply_(text) {
 }
 
 /**
- * 返信を待っている応募（詳細送付済か出発時間確認済・交通費か出発時間がまだ・日程が今日以降）を、
+ * 返信を待っている応募（確定・勤務ステータスが詳細送付済か出発時間確認済・交通費か出発時間がまだ・日程が今日以降）を、
  * 案件ごとにまとめて日程の早い順に返す。
  * @param {Array} apps 「案件応募」の行（rowToRecord_ の形。_row にシートの行番号）
  */
@@ -726,7 +736,8 @@ function travelPending_(apps, userId, now) {
   var order = [];
   apps.forEach(function (a) {
     if (a.userId !== userId || !a.detailSentAt) return;
-    if (a.status !== APPLY_STATUS.DETAIL_SENT && a.status !== APPLY_STATUS.DEPART_TIME_OK) return;
+    if (a.status !== APPLY_STATUS.CONFIRMED) return;
+    if (a.workStatus !== WORK_STATUS.DETAIL_SENT && a.workStatus !== WORK_STATUS.DEPART_TIME_OK) return;
     if (str_(a.fare) !== '' && str_(a.departure) !== '') return;
     var d = parseYmd_(a.date);
     if (d && ymd_(d) < today) return;
@@ -778,12 +789,13 @@ function departureAt_(app) {
  * 今すること：'check'（出発確認を送る）／'alert'（返信がないので担当者にメール）／''
  */
 function departureAction_(app, now) {
-  if (app.status === APPLY_STATUS.DEPART_TIME_OK && !app.departCheckSentAt) {
+  if (app.status !== APPLY_STATUS.CONFIRMED) return '';
+  if (app.workStatus === WORK_STATUS.DEPART_TIME_OK && !app.departCheckSentAt) {
     var at = departureAt_(app);
     if (at && now >= at && now < new Date(at.getTime() + DEPART_CHECK_WINDOW_MINUTES * 60000)) return 'check';
     return '';
   }
-  if (app.status === APPLY_STATUS.DEPART_CHECKING && !app.departAnswer && !app.departAlertAt) {
+  if (app.workStatus === WORK_STATUS.DEPART_CHECKING && !app.departAnswer && !app.departAlertAt) {
     var sent = parseTimestamp_(app.departCheckSentAt);
     if (sent && now >= new Date(sent.getTime() + DEPART_ALERT_MINUTES * 60000)) return 'alert';
   }
@@ -827,7 +839,7 @@ function departureAlertMail_(app, reason, sheetUrl) {
     '出発時間：' + shortTime_(app.departure),
     '電話番号：' + (app.phone || '（未登録）'),
     '',
-    '状況を確認して、「案件応募」の状態を「出勤」「遅刻」「連絡欠勤」「無断欠勤」などに変えてください。',
+    '状況を確認して、「案件応募」の勤務ステータスを「出勤」「遅刻」「連絡欠勤」「無断欠勤」などに変えてください。',
     sheetUrl || ''
   ].join('\n');
   return { subject: subject, body: body };
@@ -850,5 +862,68 @@ function applyTimeChanges_(apps, slots) {
     if (Object.keys(diff).length) changes.push({ row: a._row, fields: diff });
   });
   return changes;
+}
+
+// ---- 終了確認（勤務終了予定時間に、勤務時間などの報告をお願いする） ----
+
+/** 終了確認を送ってから返信を受け付ける時間（時間）。これを過ぎた返信は担当者が手で対応する */
+var END_REPORT_HOURS = 24;
+/** 報告のあと、続けて送られてきたメッセージも報告に足す時間（分）。返事は送らない */
+var END_REPORT_APPEND_MINUTES = 30;
+
+/** 勤務終了予定の日時（終了が開始より早ければ翌日） */
+function endAt_(app) {
+  var d = parseYmd_(app.date);
+  var end = minutesOf_(app.end);
+  if (!d || end === null) return null;
+  var at = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, end);
+  var start = minutesOf_(app.start);
+  if (start !== null && end <= start) at = new Date(at.getTime() + 24 * 3600000);
+  return at;
+}
+
+/** 終了確認を送るか（確定・欠勤でない・まだ送っていない・終了予定時間から60分以内） */
+function endCheckDue_(app, now) {
+  if (app.status !== APPLY_STATUS.CONFIRMED || app.endCheckSentAt) return false;
+  if (ABSENT_STATUSES.indexOf(app.workStatus) >= 0) return false;
+  var at = endAt_(app);
+  return !!at && now >= at && now < new Date(at.getTime() + DEPART_CHECK_WINDOW_MINUTES * 60000);
+}
+
+function endCheckText_() {
+  return 'お疲れ様です。勤務終了予定時間になりました。\n\n' +
+    '本日の業務開始時間、終了時間、休憩時間\n' +
+    'お弁当支給の有無、日払い希望かどうかを返信してください。';
+}
+
+function endThanksText_() {
+  return '返信ありがとうございます。本日もご勤務お疲れ様でした。\n\nお気をつけておかえりください';
+}
+
+/**
+ * スタッフのメッセージを終了報告として受け付けるか。
+ * @return {{app: Object, mode: 'report'|'append'}|null}
+ *   report：終了確認への最初の返信（お礼を返す）／append：報告のすぐあとに続けて送られたもの（報告に足す。返事はしない）
+ */
+function endReportTarget_(apps, userId, now) {
+  var best = null;
+  apps.forEach(function (a) {
+    if (a.userId !== userId || a.status !== APPLY_STATUS.CONFIRMED || !a.endCheckSentAt) return;
+    var sent = parseTimestamp_(a.endCheckSentAt);
+    if (!sent || now - sent > END_REPORT_HOURS * 3600000) return;
+    var mode = '';
+    if (!a.endReportAt) mode = 'report';
+    else {
+      var at = parseTimestamp_(a.endReportAt);
+      if (at && now - at <= END_REPORT_APPEND_MINUTES * 60000) mode = 'append';
+    }
+    if (!mode) return;
+    // 返信待ちを優先し、同じなら最近送ったもの
+    if (!best || (mode === 'report' && best.mode === 'append') ||
+        (mode === best.mode && str_(a.endCheckSentAt) > str_(best.app.endCheckSentAt))) {
+      best = { app: a, mode: mode };
+    }
+  });
+  return best;
 }
 
