@@ -839,3 +839,15 @@ test('Webhook：終了報告は交通費の返信より先に受け付ける', (
   assert.ok(order.every((i) => i > 0));
   assert.deepStrictEqual(order.slice().sort((a, b) => a - b), order);
 });
+
+test('LINE の送信エラーの理由を日本語で示す', () => {
+  const e = (code, body) => ctx.lineErrorText_(code, JSON.stringify(body));
+  assert.match(e(429, { message: 'You have reached your monthly limit.' }), /今月のメッセージ送信数の上限/);
+  assert.match(e(429, { message: 'Too Many Requests' }), /混み合って/);
+  assert.match(e(401, { message: 'Authentication failed' }), /チャネルアクセストークン/);
+  assert.match(e(400, { message: 'The request body has 1 error(s)', details: [{ message: 'must be non-empty https url', property: 'messages[1].originalContentUrl' }] }), /画像を送れませんでした/);
+  assert.match(e(400, { message: 'The request body has 1 error(s)', details: [{ message: 'Invalid to', property: 'to' }] }), /LINE ユーザーIDが正しくありません/);
+  assert.match(e(400, { message: 'Failed to send messages' }), /LINE が受け付けませんでした（400：Failed to send messages）/);
+  assert.doesNotMatch(e(400, { message: 'x', details: [{ message: 'size must be up to 5', property: 'messages' }] }), /ユーザーID/);
+  assert.match(ctx.lineErrorText_(500, 'oops'), /500：oops/);
+});

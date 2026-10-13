@@ -210,7 +210,7 @@ $('send').onclick = function () {
   $('send').textContent = '送信中…';
   google.script.run.withSuccessHandler(function (r) {
     showMsg((r.sent.length ? r.sent.join('、') + ' さんに送りました。' : '') +
-      (r.failed.length ? '\n' + r.failed.join('、') + ' さんには送れませんでした（シート「エラーログ」を確認してください）。' : ''), r.failed.length ? 'err' : 'info');
+      (r.failed.length ? '\n送れませんでした：\n' + r.failed.map(function (f) { return '・' + f; }).join('\n') : ''), r.failed.length ? 'err' : 'info');
     $('send').textContent = '送る';
     google.script.run.withSuccessHandler(function (d) {
       data = d;

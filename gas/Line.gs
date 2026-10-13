@@ -4,6 +4,28 @@
 
 var LINE_BOT_API = 'https://api.line.me/v2/bot';
 
+/** 直前の LINE API の失敗理由（日本語）。成功したら空 */
+var lastLineError_ = '';
+
+/** LINE API のエラー応答 → 担当者が読んでわかる理由 */
+function lineErrorText_(code, text) {
+  var body = {};
+  try { body = JSON.parse(text || '{}'); } catch (e) { body = {}; }
+  var msg = String(body.message || text || '');
+  var details = (body.details || []).map(function (d) { return (d.property ? d.property + '：' : '') + (d.message || ''); }).join('／');
+  var all = msg + ' ' + details;
+  if (code === 429 && /monthly limit/i.test(all)) {
+    return '今月のメッセージ送信数の上限に達しました（LINE Official Account Manager の「設定 > 利用と請求」でプランと送信数を確認してください）';
+  }
+  if (code === 429) return 'LINE が混み合っています。少し待ってから送り直してください';
+  if (code === 401) return 'チャネルアクセストークンが無効です（checkSettings を実行して確認してください）';
+  if (code === 400 && /ContentUrl/i.test(all)) return '画像を送れませんでした（' + details + '）。画像を外して送るか、選び直してください';
+  var badTo = (body.details || []).some(function (d) { return d.property === 'to'; }) || /property, 'to'/.test(msg);
+  if (code === 400 && badTo) return 'このスタッフの LINE ユーザーIDが正しくありません（' + all.trim() + '）';
+  if (code === 400 && /text/i.test(details) && /5000|length|size/i.test(details)) return '文章が長すぎます（' + details + '）';
+  return 'LINE が受け付けませんでした（' + code + '：' + all.trim() + '）';
+}
+
 function lineRequest_(method, path, payload) {
   var options = {
     method: method,
@@ -17,8 +39,10 @@ function lineRequest_(method, path, payload) {
   var res = UrlFetchApp.fetch(LINE_BOT_API + path, options);
   if (res.getResponseCode() >= 300) {
     console.error('LINE API error', path, res.getResponseCode(), res.getContentText());
+    lastLineError_ = lineErrorText_(res.getResponseCode(), res.getContentText());
     return null;
   }
+  lastLineError_ = '';
   return res.getContentText() ? JSON.parse(res.getContentText()) : {};
 }
 

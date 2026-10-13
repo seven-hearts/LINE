@@ -509,7 +509,7 @@ function jobSend(req) {
   if (!buckets.length) throw new Error('送信先のスタッフがいません。条件を変えてください');
 
   // 同じ案件の組み合わせを受け取る人ごとにまとめて送る（エリア・性別の条件が案件ごとに違うため）
-  var sent = 0, failed = 0;
+  var sent = 0, failed = 0, lastError = '';
   var sentPerCase = {};
   buckets.forEach(function (b) {
     var messages = jobMessages_(b.groups);
@@ -520,11 +520,12 @@ function jobSend(req) {
         b.groups.forEach(function (rows) { sentPerCase[rows[0].caseId] = (sentPerCase[rows[0].caseId] || 0) + to.length; });
       } else {
         failed += to.length;
-        logError_('案件の配信', '', new Error('LINE への送信に失敗しました（' + to.length + '人分）'));
+        logError_('案件の配信', '', new Error('LINE への送信に失敗しました（' + to.length + '人分）：' + lastLineError_));
+        lastError = lastLineError_;
       }
     }
   });
-  if (!sent) throw new Error('LINE への送信に失敗しました。シート「エラーログ」と checkSettings を確認してください');
+  if (!sent) throw new Error('LINE への送信に失敗しました：' + (lastError || 'シート「エラーログ」と checkSettings を確認してください'));
 
   var at = now_();
   groups.forEach(function (rows) {
@@ -591,7 +592,7 @@ function onApplyEdit_(e) {
       if (pushMessage_(app.userId, [textMessage_(text)])) {
         updateCells_(APPLY_SHEET, firstRow + k, { notifiedAt: now_() });
       } else {
-        updateCells_(APPLY_SHEET, firstRow + k, { adminMemo: appendMemo_(app.adminMemo, '連絡を送れませんでした（' + now_() + '）') });
+        updateCells_(APPLY_SHEET, firstRow + k, { adminMemo: appendMemo_(app.adminMemo, '連絡を送れませんでした：' + lastLineError_) });
       }
     } catch (err) {
       console.error('onApplyEdit failed', app.userId, err && err.stack || err);
@@ -717,8 +718,8 @@ function detailSend(req) {
         });
       });
     } else {
-      failed.push(s.name);
-      logError_('詳細連絡', s.userId, new Error('LINE への送信に失敗しました'));
+      failed.push(s.name + ' さん：' + (lastLineError_ || '理由はシート「エラーログ」を確認してください'));
+      logError_('詳細連絡：' + s.name, s.userId, new Error(lastLineError_ || 'LINE への送信に失敗しました'));
     }
   });
   return { sent: sent, failed: failed };
@@ -838,7 +839,7 @@ function runJobScheduler_(now) {
         // 送れなかったときも記録して、1分ごとに送り直し続けないようにする
         var ok = pushMessage_(app.userId, [textMessage_(endCheckText_())]);
         var f = { endCheckSentAt: now_() };
-        if (!ok) f.adminMemo = appendMemo_(app.adminMemo, '終了確認を送れませんでした');
+        if (!ok) f.adminMemo = appendMemo_(app.adminMemo, '終了確認を送れませんでした：' + lastLineError_);
         updateCells_(APPLY_SHEET, x.row, f);
       } catch (err) {
         logError_('終了確認', app.userId, err);
@@ -851,7 +852,7 @@ function runJobScheduler_(now) {
         if (pushMessage_(app.userId, [departureCheckMessage_(app)])) {
           updateCells_(APPLY_SHEET, x.row, { workStatus: WORK_STATUS.DEPART_CHECKING, departCheckSentAt: now_() });
         } else {
-          updateCells_(APPLY_SHEET, x.row, { departCheckSentAt: now_(), adminMemo: appendMemo_(app.adminMemo, '出発確認を送れませんでした') });
+          updateCells_(APPLY_SHEET, x.row, { departCheckSentAt: now_(), adminMemo: appendMemo_(app.adminMemo, '出発確認を送れませんでした：' + lastLineError_) });
           sendDepartureAlert_(app, '出発確認を LINE で送れませんでした');
         }
       } else if (action === 'alert') {
