@@ -1,8 +1,8 @@
 /**
- * 書類選考〜面接（LINEコール）の自動化。
+ * 書類選考〜面接（LINEのビデオ通話）の自動化。
  *
  * - 「書類通過」→ 応募者の希望日時から面接候補をボタンで送る（onStatusEdit から）
- * - 応募者がボタンで日時を選ぶ → 「面接確定」＋ LINEコールの使い方を返信（Webhook の postback）
+ * - 応募者がボタンで日時を選ぶ → 「面接確定」＋ ビデオ通話の使い方を返信（Webhook の postback）
  * - 面接当日の朝9時にリマインド、面接の時刻に「ビデオ通話する」ボタンを送る（runScheduler：1分ごと）
  * - 「書類落選」→ すぐに不採用通知を送る（onStatusEdit から。送れなかった場合は runScheduler が送り直す）
  * - 「不採用」（面接後）→ 翌日の午前10時に不採用通知を送る（runScheduler）
@@ -50,7 +50,7 @@ function interviewRejectText_(rec) {
 }
 
 function callGuideText_() {
-  return '面接は、LINEの無料ビデオ通話「LINEコール」で行います（' + INTERVIEW_LENGTH + '）。\n\n' +
+  return '面接は、LINEのビデオ通話で行います（' + INTERVIEW_LENGTH + '）。\n\n' +
     '【当日の流れ】\n' +
     '① 面接の時間になると、このトークに「📹 ビデオ通話する」ボタンが届きます\n' +
     '② ボタンをタップし、「ビデオ通話」で発信してください\n' +
@@ -69,7 +69,7 @@ function callGuideText_() {
 function fixedText_(rec, at) {
   return fullName_(rec) + ' 様\n\n面接の日時が決まりました。\n\n' +
     '📅 ' + at + '\n' +
-    '📹 LINEコール（ビデオ通話・' + INTERVIEW_LENGTH + '）\n\n' +
+    '📹 LINEのビデオ通話（' + INTERVIEW_LENGTH + '）\n\n' +
     '当日の朝' + REMINDER_HOUR + '時にリマインドをお送りします。\n' +
     'ご都合が悪くなった場合は、このトークでお知らせください。';
 }
@@ -77,7 +77,7 @@ function fixedText_(rec, at) {
 function reminderText_(rec) {
   return fullName_(rec) + ' 様\n\n本日は面接の日です。よろしくお願いいたします。\n\n' +
     '📅 ' + rec.interviewAt + '\n' +
-    '📹 LINEコール（ビデオ通話・' + INTERVIEW_LENGTH + '）\n\n' +
+    '📹 LINEのビデオ通話（' + INTERVIEW_LENGTH + '）\n\n' +
     'お時間になりましたら、このトークに「ビデオ通話する」ボタンをお送りします。' +
     '静かで明るく、電波の良い場所でお待ちください。\n\n' +
     'ご都合が悪くなった場合は、このトークでお知らせください。';
@@ -217,7 +217,7 @@ function calendarTitle_(rec) {
 
 function calendarDescription_(rec, sheetUrl) {
   var lines = [
-    'セブンハーツ スタッフ面接（LINEコール・ビデオ通話・' + INTERVIEW_LENGTH + '）',
+    'セブンハーツ スタッフ面接（LINEのビデオ通話・' + INTERVIEW_LENGTH + '）',
     '面接の時刻に応募者へ「ビデオ通話する」ボタンが自動で送られます。LINE公式アカウントアプリで着信に応答してください。',
     '',
     '氏名：' + fullName_(rec) + (rec.lastNameKana ? '（' + rec.lastNameKana + ' ' + rec.firstNameKana + '）' : '')

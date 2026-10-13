@@ -115,7 +115,7 @@ test('通しの流れ：書類通過→候補送信→応募者が選択→面�
   const reply = sent[1];
   assert.strictEqual(reply[0], 'reply');
   assert.match(reply[1][0].text, /面接の日時が決まりました/);
-  assert.match(reply[1][1].text, /LINEコール/);
+  assert.match(reply[1][1].text, /LINEのビデオ通話で行います/);
 
   // 確定後にもう一度押しても変わらない
   ctx.onInterviewPostback_({ replyToken: 'r' }, 'U1', { iv: 'pick', t: '2099/01/10(土) 14:00' });
@@ -302,7 +302,7 @@ test('面接の案内：ビデオ通話・20〜30分程度（ボタンの本文�
   texts.forEach((t) => {
     assert.match(t, /ビデオ通話/);
     assert.match(t, /20〜30分程度/);
-    assert.doesNotMatch(t, /10〜15分|音声通話・/);
+    assert.doesNotMatch(t, /10〜15分|音声通話・|LINEコール/);
   });
   const withUrl = ctx.callMessages_(r, 'https://line.me/R/call/x');
   assert.strictEqual(withUrl[0].template.actions[0].label, '📹 ビデオ通話する');
