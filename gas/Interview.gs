@@ -93,8 +93,11 @@ function meetGuideText_() {
     '① 当日の朝と面接の時間に、このトークに「Google Meet に参加する」ボタンが届きます\n' +
     '② 面接の時間になったらボタンをタップし、お名前を入力して「参加をリクエスト」を押してください\n' +
     '③ 担当者が参加を承認すると、面接が始まります\n\n' +
+    '【スマホの準備（機種によって違います）】\n' +
+    '・iPhone の方：準備は不要です。ボタンを押すと、アプリがなくてもそのまま参加できます\n' +
+    '・Android の方：「Google Meet」アプリ（無料）を、前日までに入れておいてください\n' +
+    '・どちらも、Googleアカウントがなくても参加できます\n\n' +
     '【事前にご準備ください】\n' +
-    '・スマホに「Google Meet」アプリを入れておいてください（無料。Googleアカウントがなくても参加できます）\n' +
     '・静かで明るく、顔がはっきり映る場所\n' +
     '・電波の安定した環境（ビデオ通話は通信量が多いため、Wi-Fiがおすすめです）\n' +
     '・スマホの充電と、画面が揺れないようにスマホを立てておけるもの\n' +
@@ -117,8 +120,8 @@ function reminderText_(rec, method) {
     '📅 ' + rec.interviewAt + '\n' +
     methodLine_(method) + '\n\n' +
     (isMeet_(method)
-      ? 'お時間になりましたら、このトークに届く「Google Meet に参加する」ボタンから参加してください。' +
-        'まだの方は、今のうちに「Google Meet」アプリを入れておいてください。\n\n'
+      ? 'お時間になりましたら、このトークに届く「Google Meet に参加する」ボタンから参加してください。\n' +
+        'Android の方で「Google Meet」アプリをまだ入れていない方は、今のうちに入れておいてください（iPhone の方はアプリなしで参加できます）。\n\n'
       : 'お時間になりましたら、このトークに「ビデオ通話する」ボタンをお送りします。' +
         '静かで明るく、電波の良い場所でお待ちください。\n\n') +
     'ご都合が悪くなった場合は、このトークでお知らせください。';
@@ -128,7 +131,7 @@ function reminderText_(rec, method) {
 function reminderMessages_(rec, method) {
   var messages = [textMessage_(reminderText_(rec, method))];
   if (isMeet_(method) && rec.meetUrl) {
-    messages.push(buttonMessage_('面接の参加用ボタンです（面接の時間になったら押してください）', 'Google Meet に参加する', rec.meetUrl));
+    messages.push(buttonMessage_('面接の参加用ボタンです。面接の時間になったら押してください（Android の方は「Google Meet」アプリが必要です）', 'Google Meet に参加する', rec.meetUrl));
   }
   return messages;
 }

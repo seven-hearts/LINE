@@ -464,3 +464,16 @@ test('1分ごとの自動処理で、カレンダーの予定に Google Meet を
   assert.match(pushed[1][0].text, /参加用のURLを担当者から/);
   assert.strictEqual(admin.length, 1);
 });
+
+test('Google Meet の案内：iPhone はアプリなしで参加でき、Android はアプリを入れてもらう', () => {
+  const r = rec({ interviewAt: '2026/10/12(月) 14:00', meetUrl: 'https://meet.google.com/abc-defg-hij' });
+  const guide = ctx.callGuideText_('meet');
+  assert.match(guide, /iPhone の方：準備は不要です。ボタンを押すと、アプリがなくてもそのまま参加できます/);
+  assert.match(guide, /Android の方：「Google Meet」アプリ（無料）を、前日までに入れておいてください/);
+  assert.match(guide, /Googleアカウントがなくても参加できます/);
+  assert.match(ctx.reminderText_(r, 'meet'), /Android の方で「Google Meet」アプリをまだ入れていない方は/);
+  const btn = ctx.reminderMessages_(r, 'meet')[1];
+  assert.match(btn.template.text, /Android の方は「Google Meet」アプリが必要です/);
+  assert.ok(btn.template.text.length <= 160);
+  assert.doesNotMatch(guide, /スマホに「Google Meet」アプリを入れておいてください/);
+});
