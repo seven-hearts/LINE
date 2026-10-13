@@ -17,6 +17,7 @@ var ANTHROPIC_FALLBACK_BETA = 'server-side-fallback-2026-07-01';
 /** 「案件一覧」などのシートを用意する（setup から呼ぶ。何度実行しても安全） */
 function setupJobSheets_(ss) {
   migrateWorkColumn_(ss.getSheetByName(JOB_SHEET));
+  migrateJobColumns_(ss.getSheetByName(JOB_SHEET));
   var jobs = ensureSheet_(ss, JOB_SHEET);
   ensureSheet_(ss, APPLY_SHEET);
   ensureSheet_(ss, IMPORT_SHEET);
@@ -30,12 +31,46 @@ function setupJobSheets_(ss) {
   col('募集状況').setDataValidation(SpreadsheetApp.newDataValidation()
     .requireValueInList([RECRUIT.OPEN, RECRUIT.CLOSED], true).build());
   col('ポジション').setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(ROLES, true).build());
+  col('単位').setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(UNITS, true).build());
 
   var apply = ss.getSheetByName(APPLY_SHEET);
   var statusValues = Object.keys(APPLY_STATUS).map(function (k) { return APPLY_STATUS[k]; });
   apply.getRange(2, headerMap_(apply)['状態'] + 1, apply.getMaxRows() - 1, 1).setDataValidation(
     SpreadsheetApp.newDataValidation().requireValueInList(statusValues, true).setAllowInvalid(false).build());
   apply.getRange(2, headerMap_(apply)['交通費（往復）'] + 1, apply.getMaxRows() - 1, 1).setNumberFormat('¥#,##0');
+}
+
+/**
+ * 以前の「案件一覧」を今の列の形にする（何度実行しても安全）。
+ * - 「服装　持ち物」→「服装」と「持ち物」に分ける
+ * - 「現場連絡先」→「集合担当者名」と「集合担当連絡先」に分ける
+ * - 「支払い」の列を消す
+ */
+function migrateJobColumns_(sh) {
+  if (!sh || !sh.getLastColumn()) return;
+  splitColumn_(sh, '服装　持ち物', '服装', '持ち物', function (v) {
+    var d = splitDress_(v);
+    return [d.dress, d.belongings];
+  });
+  splitColumn_(sh, '現場連絡先', '集合担当者名', '集合担当連絡先', function (v) {
+    var c = splitContact_(v);
+    return [c.name, c.phone];
+  });
+  var header = headerMap_(sh);
+  if (header['支払い'] !== undefined) sh.deleteColumn(header['支払い'] + 1);
+}
+
+/** 見出し oldLabel の列を、newLabel とその右隣の nextLabel の2列に分ける（split が値を2つに分ける） */
+function splitColumn_(sh, oldLabel, newLabel, nextLabel, split) {
+  var header = headerMap_(sh);
+  if (header[oldLabel] === undefined || header[newLabel] !== undefined) return;
+  var col = header[oldLabel] + 1;
+  sh.insertColumnAfter(col);
+  sh.getRange(1, col, 1, 2).setValues([[newLabel, nextLabel]]);
+  var n = sh.getLastRow() - 1;
+  if (n < 1) return;
+  var values = sh.getRange(2, col, n, 1).getValues().map(function (r) { return split(str_(r[0])); });
+  sh.getRange(2, col, n, 2).setValues(values);
 }
 
 /**
@@ -655,7 +690,7 @@ function detailSend(req) {
     if (x.rec.caseId !== c.caseId) return;
     var changes = {};
     var saved = { meetingPlace: str_(f.meetingPlace), meetingTime: str_(f.meetingTime),
-      contact: joinContact_(f.contactName, f.contactPhone), detailImages: (f.images || []).join(',') };
+      contactName: str_(f.contactName), contactPhone: str_(f.contactPhone), detailImages: (f.images || []).join(',') };
     Object.keys(saved).forEach(function (k) {
       if (saved[k] !== str_(x.rec[k])) changes[k] = saved[k];
     });

@@ -14,7 +14,8 @@ var INVOICE_OPTIONS = ['未', '発行済', '入金済'];
 var ROLES = ['D', 'AD', 'ST'];
 var DEFAULT_ROLE = 'ST';
 
-var PAY_BASIS = ['拘束時間', '実働時間', '日給', '記載なし'];
+var PAY_BASIS = ['拘束時間', '実働時間', '日給', '記載なし']; // 売上の計算に使う（シートには残さない）
+var UNITS = ['時給', '日給'];
 var GENDER_REQ = ['男女可', '男性のみ', '女性のみ', '記載なし'];
 
 /** 1つのバブルに並べる応募ボタンの数（多い日程は次のバブルに分ける） */
@@ -227,7 +228,8 @@ function normalizeCase_(c) {
     belongings: str_(c.belongings),
     meetingTime: str_(c.meeting_time),
     meetingPlace: str_(c.meeting_place),
-    contact: str_(c.contact),
+    contactName: splitContact_(c.contact).name,
+    contactPhone: splitContact_(c.contact).phone,
     payBasis: PAY_BASIS.indexOf(c.pay_basis) >= 0 ? c.pay_basis : '記載なし',
     unitPrice: isNum_(c.unit_price) ? c.unit_price : null,
     minHours: isNum_(c.min_hours) ? c.min_hours : null,
@@ -246,13 +248,6 @@ function unitOf_(payBasis) {
   return '';
 }
 
-function dressText_(c) {
-  var parts = [];
-  if (c.dress) parts.push('服装：' + c.dress);
-  if (c.belongings) parts.push('持ち物：' + c.belongings);
-  return parts.join('\n');
-}
-
 function yen_(n) {
   return '¥' + String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
@@ -260,17 +255,18 @@ function yen_(n) {
 /**
  * 1日（1時間帯）分の金額。
  * 売上 = 単価 ×（時給なら請求する時間）× 人数、総支払額 = 売上 ＋（交通費＋食費）× 人数。
+ * 時給の「請求する時間」は、依頼文の支払い方（payBasis）が拘束時間なら勤務時間、実働時間なら実働時間。
  * 人数や単価がわからないときは空欄にする（推測しない）。
  */
-function jobAmounts_(row, minHours) {
+function jobAmounts_(row, minHours, payBasis) {
   var span = spanHours_(row.start, row.end);
   var brk = isNum_(row.breakHours) ? row.breakHours : null;
   var work = span !== null && brk !== null ? round2_(Math.max(0, span - brk)) : null;
   var hours = null;
-  if (row.payBasis === '拘束時間') hours = span;
-  else if (row.payBasis === '実働時間') hours = work;
-  else if (row.payBasis === '日給') hours = 1;
-  if (hours !== null && isNum_(minHours) && row.payBasis !== '日給') hours = Math.max(hours, minHours);
+  if (payBasis === '拘束時間') hours = span;
+  else if (payBasis === '実働時間') hours = work;
+  else if (payBasis === '日給') hours = 1;
+  if (hours !== null && isNum_(minHours) && payBasis !== '日給') hours = Math.max(hours, minHours);
 
   var n = isNum_(row.headcount) ? row.headcount : null;
   var sales = isNum_(row.unitPrice) && hours !== null && n !== null ? Math.round(row.unitPrice * hours * n) : null;
@@ -301,8 +297,8 @@ function jobRows_(cases, opts) {
         end: normalizeTime_(s.end),
         weekday: d ? WEEKDAYS_JA[d.getDay()] + (s.holiday ? '祝' : '') : '',
         breakHours: toNum_(s.breakHours),
-        dress: dressText_(c),
-        payBasis: c.payBasis === '記載なし' ? '' : c.payBasis,
+        dress: str_(c.dress),
+        belongings: str_(c.belongings),
         unit: unitOf_(c.payBasis),
         unitPrice: toNum_(c.unitPrice),
         transport: toNum_(c.transport),
@@ -314,7 +310,8 @@ function jobRows_(cases, opts) {
         meetingTime: c.meetingTime,
         meetingPlace: c.meetingPlace,
         address: c.address,
-        contact: c.contact,
+        contactName: str_(c.contactName),
+        contactPhone: str_(c.contactPhone),
         notes: [c.notes, s.note, isNum_(toNum_(c.minHours)) ? toNum_(c.minHours) + '時間保証' : '',
           c.transportNote ? '交通費：' + c.transportNote : ''].filter(Boolean).join('／'),
         staffPay: '',
@@ -327,7 +324,7 @@ function jobRows_(cases, opts) {
         slotId: caseId + '-' + (si + 1),
         importId: opts.importId
       };
-      var a = jobAmounts_(row, toNum_(c.minHours));
+      var a = jobAmounts_(row, toNum_(c.minHours), c.payBasis);
       row.workHours = a.workHours;
       row.sales = a.sales;
       row.total = a.total;
@@ -453,6 +450,7 @@ function jobBubbles_(rows) {
   if (first.genderReq === '男性のみ') info.push(infoLine_('募集', '男性スタッフ'));
   if (first.meetingTime || first.meetingPlace) info.push(infoLine_('集合', [first.meetingTime, first.meetingPlace].filter(Boolean).join('\n')));
   if (first.dress) info.push(infoLine_('服装', first.dress));
+  if (first.belongings) info.push(infoLine_('持ち物', first.belongings));
   if (first.staffPay) info.push(infoLine_('給与', first.staffPay));
   if (first.staffTransport) info.push(infoLine_('交通費', first.staffTransport));
   if (meal && meal !== 'なし') info.push(infoLine_('食事', meal));
@@ -571,10 +569,11 @@ function jpDate_(row) {
 
 /** 詳細連絡の入力欄の初期値（「案件一覧」の行から） */
 function detailDefaults_(row) {
-  var d = splitDress_(row.dress);
+  // 以前の形（服装の列に「服装：…／持ち物：…」）にも対応する
+  var d = str_(row.belongings) ? { dress: str_(row.dress), belongings: str_(row.belongings) } : splitDress_(row.dress);
   var meal = toNum_(row.meal);
   var pay = str_(row.staffPay);
-  var contact = splitContact_(row.contact);
+  var contact = str_(row.contactPhone) ? { name: str_(row.contactName), phone: str_(row.contactPhone) } : splitContact_(row.contactName);
   var place = str_(row.address);
   if (row.place && place.indexOf(row.place) < 0) place = (place ? place + '　' : '') + row.place;
   return {

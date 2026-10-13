@@ -157,9 +157,9 @@ COLUMNS[JOB_SHEET] = [
   ['weekday', '曜日'],
   ['breakHours', '休憩時間'],
   ['workHours', '実働時間'],
-  ['dress', '服装　持ち物'],
-  ['payBasis', '支払い'],
-  ['unit', '単位'],
+  ['dress', '服装'],
+  ['belongings', '持ち物'],
+  ['unit', '単位'],         // 時給 / 日給
   ['unitPrice', '単価'],
   ['sales', '売上'],
   ['transport', '交通費'],
@@ -174,7 +174,8 @@ COLUMNS[JOB_SHEET] = [
   ['meetingTime', '集合時間'],
   ['meetingPlace', '集合場所'],
   ['address', '住所・アクセス'],
-  ['contact', '現場連絡先'],
+  ['contactName', '集合担当者名'],
+  ['contactPhone', '集合担当連絡先'],
   ['notes', '備考'],
   ['staffPay', 'スタッフ向け給与'],
   ['staffTransport', 'スタッフ向け交通費'],
@@ -223,7 +224,7 @@ COLUMNS[IMPORT_SHEET] = [
  * 日付・時刻は Sheets が自動で日時に変換すると読み戻すときにずれるため、文字のまま保存する。
  */
 var TEXT_COLUMNS = {};
-TEXT_COLUMNS[JOB_SHEET] = ['日程', '開始時間', '終了時間', '曜日', '売上計上月', '入金予定月', '集合時間', '現場連絡先', '詳細連絡の画像', '配信日時', '案件ID', '枠ID', '取込ID'];
+TEXT_COLUMNS[JOB_SHEET] = ['日程', '開始時間', '終了時間', '曜日', '売上計上月', '入金予定月', '集合時間', '集合担当者名', '集合担当連絡先', '詳細連絡の画像', '配信日時', '案件ID', '枠ID', '取込ID'];
 
 var spreadsheetCache_ = null;
 

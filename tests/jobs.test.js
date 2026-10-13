@@ -47,7 +47,7 @@ test('1日1行にして、曜日・時間・金額・計上月を計算する', 
   assert.strictEqual(r.weekday, '木');
   assert.strictEqual(r.start, '08:30');
   assert.strictEqual(r.end, '15:30');
-  assert.strictEqual(r.payBasis, '拘束時間');
+  assert.strictEqual(r.payBasis, undefined); // 「支払い」の列はない（売上の計算にだけ使う）
   assert.strictEqual(r.unit, '時給');
   assert.strictEqual(r.unitPrice, 1600);
   assert.strictEqual(r.sales, 1600 * 7 * 3);          // 拘束7時間 × 3名
@@ -58,7 +58,10 @@ test('1日1行にして、曜日・時間・金額・計上月を計算する', 
   assert.strictEqual(r.salesMonth, '2026/10');
   assert.strictEqual(r.paymentMonth, '2026/11');
   assert.strictEqual(r.invoice, '未');
-  assert.strictEqual(r.dress, '服装：上：白カッターシャツ／下：黒パンツ、華美でないスニーカー\n持ち物：筆記用具、メモ、腕時計');
+  assert.strictEqual(r.dress, '上：白カッターシャツ／下：黒パンツ、華美でないスニーカー');
+  assert.strictEqual(r.belongings, '筆記用具、メモ、腕時計');
+  assert.strictEqual(r.contactName, '');
+  assert.strictEqual(r.contactPhone, '');
   assert.strictEqual(r.staffTransport, '¥660（阪神大阪梅田〜阪神元町 往復）');
   assert.strictEqual(r.recruit, '募集中');
   assert.strictEqual(r.work, 'イベント運営（受付・誘導・準備片付け）');
@@ -80,7 +83,7 @@ test('日程は日付順に並べ、単価がなければ売上は空欄', () =>
   const rows = rowsOf([monozukuri]);
   assert.deepStrictEqual(rows.map((r) => r.date + r.weekday), ['2026/10/07水', '2026/10/08木', '2026/10/09金']);
   assert.ok(rows.every((r) => r.breakHours === 1 && r.workHours === 8 && r.headcount === 8));
-  assert.ok(rows.every((r) => r.sales === '' && r.total === '' && r.payBasis === '' && r.unit === ''));
+  assert.ok(rows.every((r) => r.sales === '' && r.total === '' && r.unit === ''));
   assert.strictEqual(rows[0].meetingTime, '7:45');
   assert.deepStrictEqual(rows.map((r) => r.slotId), ['261006120000-1-1', '261006120000-1-2', '261006120000-1-3']);
 });
@@ -388,7 +391,7 @@ const lohas = [['2026/09/21', '月祝'], ['2026/09/22', '火祝']].map(([date, w
   title: 'ロハスミーツ高槻', work: 'お菓子ボウリングの運営', place: '安満遺跡公園',
   address: '〒569-0096 大阪府高槻市八丁畷町１２−３', date, weekday, start: '09:00', end: '17:30',
   notes: '時間が前後する可能性あり', meetingPlace: '安満遺跡公園東広場にある\nスターバックス コーヒー 高槻安満遺跡公園店前に',
-  meetingTime: '開始10分前', contact: '前田\n090-7873-8978', dress: '服装：黒ズボン、華美でない上着、スニーカー\n持ち物：筆記用具、メモ、腕時計',
+  meetingTime: '開始10分前', contactName: '前田', contactPhone: '090-7873-8978', dress: '黒ズボン、華美でない上着、スニーカー', belongings: '筆記用具、メモ、腕時計',
   staffPay: '時給1180円', meal: 500, caseId: 'L-1', slotId: 'L-1-' + (i + 1)
 }));
 
@@ -534,4 +537,54 @@ test('詳細連絡のメッセージ：本文 → 画像（3枚まで）→ 返�
   assert.deepStrictEqual(msgs[1], { type: 'image', originalContentUrl: 'https://lh3.googleusercontent.com/d/img1', previewContentUrl: 'https://lh3.googleusercontent.com/d/img1' });
   assert.match(msgs[4].text, /^【ご返信のお願い】/);
   assert.deepStrictEqual(plain(ctx.detailMessages_(Object.assign({}, f, { images: [] }), lohas)).map((m) => m.type), ['text', 'text']);
+});
+
+test('依頼文の集合担当は、名前と連絡先に分けて「案件一覧」に入る', () => {
+  const [r] = rowsOf([Object.assign({}, monozukuri, { contact: '大岡（090-6757-3808）' })]);
+  assert.strictEqual(r.contactName, '大岡');
+  assert.strictEqual(r.contactPhone, '090-6757-3808');
+  assert.strictEqual(r.unit, '');
+  const [k] = rowsOf([kobe]);
+  assert.strictEqual(k.unit, '時給');
+  const [d] = rowsOf([Object.assign({}, kobe, { pay_basis: '日給', unit_price: 12000 })]);
+  assert.strictEqual(d.unit, '日給');
+  assert.strictEqual(d.sales, 12000 * 3);
+  assert.ok(plain(ctx.UNITS).includes('時給') && plain(ctx.UNITS).includes('日給'));
+});
+
+test('詳細連絡：以前の形（服装の列に持ち物も・連絡先が1つの欄）の行にも対応', () => {
+  const old = Object.assign({}, lohas[0], { dress: '服装：黒ズボン\n持ち物：腕時計', belongings: '', contactName: '前田 090-7873-8978', contactPhone: '' });
+  const f = plain(ctx.detailDefaults_(old));
+  assert.deepStrictEqual([f.dress, f.belongings, f.contactName, f.contactPhone], ['黒ズボン', '腕時計', '前田', '090-7873-8978']);
+});
+
+test('以前の「案件一覧」の列を今の形にする：服装／持ち物、集合担当者名／連絡先、「支払い」を消す', () => {
+  const { c } = geminiCtx(() => gemOk({}));
+  const grid = [
+    ['取引先名', 'タイトル', '服装　持ち物', '支払い', '単位', '現場連絡先', '備考'],
+    ['A', 'パン祭り', '服装：白シャツ\n持ち物：腕時計', '拘束時間', '時給', '大岡（090-6757-3808）', 'x'],
+    ['A', 'パン祭り', '', '', '時給', '', '']
+  ];
+  const sheet = {
+    getLastColumn: () => grid[0].length,
+    getLastRow: () => grid.length,
+    getRange: (r, col, nr, nc) => ({
+      getValues: () => grid.slice(r - 1, r - 1 + (nr || 1)).map((row) => row.slice(col - 1, col - 1 + (nc || 1))),
+      setValue: (v) => { grid[r - 1][col - 1] = v; },
+      setValues: (vals) => vals.forEach((v, k) => { grid[r - 1 + k].splice(col - 1, v.length, ...v); })
+    }),
+    insertColumnAfter: (col) => grid.forEach((row) => row.splice(col, 0, '')),
+    deleteColumn: (col) => grid.forEach((row) => row.splice(col - 1, 1))
+  };
+  c.migrateJobColumns_(sheet);
+  assert.deepStrictEqual(grid[0], ['取引先名', 'タイトル', '服装', '持ち物', '単位', '集合担当者名', '集合担当連絡先', '備考']);
+  assert.deepStrictEqual(grid[1], ['A', 'パン祭り', '白シャツ', '腕時計', '時給', '大岡', '090-6757-3808', 'x']);
+  assert.deepStrictEqual(grid[2], ['A', 'パン祭り', '', '', '時給', '', '', '']);
+  c.migrateJobColumns_(sheet); // 2回目は何もしない
+  assert.strictEqual(grid[0].length, 8);
+  // 今の列の並び（新しく作るシート）：服装・持ち物・単位が並び、「支払い」はない
+  const labels = plain(c.COLUMNS[c.JOB_SHEET].map((x) => x[1]));
+  assert.deepStrictEqual(labels.slice(11, 14), ['服装', '持ち物', '単位']);
+  assert.ok(!labels.includes('支払い'));
+  assert.strictEqual(labels[labels.indexOf('集合担当者名') + 1], '集合担当連絡先');
 });

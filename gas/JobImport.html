@@ -137,10 +137,10 @@ function render() {
     return '<div class="card">' +
       '<div class="card-head"><strong>案件' + (ci + 1) + '</strong><button class="small" data-del-case="' + ci + '">この案件を追加しない</button></div>' +
       '<div class="row">' + field(ci, 'title', 'タイトル', 'w2') + field(ci, 'place', '場所') + field(ci, 'prefecture', '都道府県') + field(ci, 'work', '仕事内容', 'w2') + select(ci, 'role', 'ポジション', ROLES) + '</div>' +
-      '<div class="row">' + field(ci, 'address', '住所・アクセス', 'w3') + field(ci, 'contact', '現場連絡先', 'w2') + '</div>' +
+      '<div class="row">' + field(ci, 'address', '住所・アクセス', 'w3') + field(ci, 'contactName', '集合担当者名') + field(ci, 'contactPhone', '集合担当連絡先') + '</div>' +
       '<div class="row">' + field(ci, 'meetingTime', '集合時間') + field(ci, 'meetingPlace', '集合場所', 'w2') + field(ci, 'conditions', '募集条件', 'w2') + select(ci, 'genderReq', '性別', GENDER) + '</div>' +
       '<div class="row">' + field(ci, 'dress', '服装', 'w2', 'textarea') + field(ci, 'belongings', '持ち物', '', 'textarea') + field(ci, 'notes', '備考', 'w2', 'textarea') + '</div>' +
-      '<div class="row">' + select(ci, 'payBasis', '支払い', PAY_BASIS) + field(ci, 'unitPrice', '単価（円）', '', 'number') + field(ci, 'minHours', '保証時間', '', 'number') +
+      '<div class="row">' + select(ci, 'payBasis', '支払い方（売上の計算用）', PAY_BASIS) + field(ci, 'unitPrice', '単価（円）', '', 'number') + field(ci, 'minHours', '保証時間', '', 'number') +
         field(ci, 'transport', '交通費（円/人）', '', 'number') + field(ci, 'transportNote', '交通費の区間など', 'w2') +
         field(ci, 'mealFee', '食費（円/人）', '', 'number') + field(ci, 'mealNote', '食事（金額以外）') + '</div>' +
       '<table><thead><tr><th style="width:130px">日程</th><th style="width:32px">祝</th><th style="width:90px">開始</th><th style="width:90px">終了</th><th style="width:70px">休憩(h)</th><th style="width:60px">人数</th><th>メモ</th><th style="width:60px"></th></tr></thead>' +
