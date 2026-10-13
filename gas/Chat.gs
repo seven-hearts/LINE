@@ -94,10 +94,108 @@ function loadChat_(userId) {
 }
 
 function saveChat_(userId, state) {
-  writeRecord_(CHAT_SHEET, userId, {
+  var fields = {
     question: CHAT_STEPS[state.step].label,
     state: JSON.stringify(state),
     startedAt: Utilities.formatDate(new Date(state.startedAt), 'Asia/Tokyo', 'yyyy/MM/dd HH:mm:ss'),
     updatedAt: now_()
-  });
+  };
+  // 返事があったら、リマインドは数え直す（また1日後・3日後に送る）。
+  // setup を実行し直す前（列がない）でも友だち追加のやりとりが止まらないよう、列があるときだけ書く
+  if (headerMap_(sheet_(CHAT_SHEET))['リマインド回数'] !== undefined) {
+    fields.remindCount = 0;
+    fields.remindedAt = '';
+  }
+  writeRecord_(CHAT_SHEET, userId, fields);
 }
+
+// ---- 登録途中の人へのリマインド ----
+
+/** 最後のやりとりから何時間後に送るか（1回目・2回目）。全部送ったら、それ以上は送らない */
+var CHAT_REMIND_AFTER_HOURS = [24, 72];
+/** 送る時間帯（この時刻から、この時刻の前まで。夜中や早朝には送らない） */
+var CHAT_REMIND_HOURS = [10, 20];
+
+/** 「yyyy/MM/dd HH:mm:ss」（now_ の形式）や Date → Date */
+function chatTime_(s) {
+  if (Object.prototype.toString.call(s) === '[object Date]') return isNaN(s.getTime()) ? null : s;
+  var m = /^(\d{4})\/(\d{1,2})\/(\d{1,2}) (\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(String(s || '').trim());
+  return m ? new Date(+m[1], m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0)) : null;
+}
+
+/** シート「登録途中」の行に、今リマインドを送るか */
+function chatReminderDue_(rec, now) {
+  if (!rec.userId || !rec.state) return false;
+  var count = parseInt(rec.remindCount, 10) || 0;
+  if (count >= CHAT_REMIND_AFTER_HOURS.length) return false;
+  var last = chatTime_(rec.updatedAt);
+  if (!last) return false;
+  if (now.getHours() < CHAT_REMIND_HOURS[0] || now.getHours() >= CHAT_REMIND_HOURS[1]) return false;
+  return now.getTime() >= last.getTime() + CHAT_REMIND_AFTER_HOURS[count] * 3600000;
+}
+
+/** リマインドのメッセージ。フォームの入力待ちならボタン、お名前の途中なら続きの質問 */
+function chatReminderMessages_(state) {
+  if (!chatAsking_(state)) {
+    var d = state.data || {};
+    var name = [d.lastName, d.firstName].filter(Boolean).join(' ');
+    return [buttonMessage_(
+      (name ? name + ' さん\n' : '') + 'スタッフ登録の途中です。あと少しで完了します（約2分）。\n下のボタンから、続きをご入力ください。',
+      '続きを入力する',
+      registerUrl_()
+    )];
+  }
+  return [textMessage_('スタッフ登録の途中です。あと少しで完了します。\n' +
+    '登録をやめる場合は「' + CHAT_CANCEL + '」と送ってください。')].concat(chatPrompt_(state));
+}
+
+/**
+ * リマインドを送る（1分ごとの runScheduler から。force なら時間を待たずに全員へ：メニューから）。
+ * @return {number} 送った人数
+ */
+function sendChatReminders_(now, force) {
+  var sh = spreadsheet_().getSheetByName(CHAT_SHEET);
+  if (!sh || sh.getLastRow() < 2) return 0;
+  var header = headerMap_(sh);
+  // setup を実行し直していない（列がない）と送った回数を残せず、1分ごとに送り続けてしまうため送らない
+  if (header['リマインド回数'] === undefined || header['リマインド送信日時'] === undefined) return 0;
+  var rows = sh.getRange(2, 1, sh.getLastRow() - 1, sh.getLastColumn()).getValues();
+  var sent = 0;
+  rows.forEach(function (values) {
+    var rec = rowToRecord_(CHAT_SHEET, header, values);
+    if (!rec.userId) return;
+    if (force) {
+      // メニューから送るとき：1時間以内に送った人には送らない（押し間違いで2回送らないように）
+      var prev = chatTime_(rec.remindedAt);
+      if (prev && now - prev < 3600000) return;
+    } else if (!chatReminderDue_(rec, now)) {
+      return;
+    }
+    try {
+      var state = JSON.parse(rec.state);
+      if (!CHAT_STEPS[state.step]) return;
+      var ok = pushMessage_(rec.userId, chatReminderMessages_(state));
+      // 送れなかったときも回数は進める（1分ごとに送り直し続けないように）
+      writeRecord_(CHAT_SHEET, rec.userId, { remindCount: (parseInt(rec.remindCount, 10) || 0) + 1, remindedAt: now_() });
+      if (ok) sent++;
+      else logError_('登録途中のリマインド', rec.userId, new Error(lastLineError_ || 'LINE への送信に失敗しました'));
+    } catch (err) {
+      logError_('登録途中のリマインド', rec.userId, err);
+    }
+  });
+  return sent;
+}
+
+/** メニュー「登録途中の人にリマインドを今すぐ送る」 */
+function sendChatRemindersNow() {
+  var ui = SpreadsheetApp.getUi();
+  var sh = sheet_(CHAT_SHEET);
+  var n = Math.max(0, lastDataRow_(sh, headerMap_(sh)) - 1);
+  if (!n) return ui.alert('登録途中の人はいません。');
+  var answer = ui.alert('登録途中の人にリマインドを送る',
+    'シート「登録途中」の ' + n + ' 人に、登録の続きをお願いするメッセージを今すぐ送ります（1時間以内に送った人を除く）。よろしいですか？',
+    ui.ButtonSet.OK_CANCEL);
+  if (answer !== ui.Button.OK) return;
+  ui.alert(sendChatReminders_(new Date(), true) + ' 人に送りました。「リマインド送信日時」の列で確認できます。');
+}
+

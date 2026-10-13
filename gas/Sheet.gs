@@ -128,7 +128,9 @@ COLUMNS[CHAT_SHEET] = [
   ['question', '回答中の質問'],
   ['state', '回答内容（システム用）'],
   ['startedAt', '開始日時'],
-  ['updatedAt', '最終更新日時']
+  ['updatedAt', '最終更新日時'],
+  ['remindCount', 'リマインド回数'],      // 返事があると 0 に戻る
+  ['remindedAt', 'リマインド送信日時']
 ];
 
 // 1〜31日の列には「○」（出勤できる）か「×」（出勤できない）が入る

@@ -341,6 +341,8 @@ function onOpen() {
     .addItem('案件をLINEで配信', 'showJobSend')
     .addItem('確定した人に詳細連絡を送る', 'showDetailSend')
     .addSeparator()
+    .addItem('登録途中の人にリマインドを今すぐ送る', 'sendChatRemindersNow')
+    .addSeparator()
     .addItem('不採用通知の送信予定を確認', 'showPendingNotices')
     .addItem('不採用通知を今すぐ送る', 'sendRejectionsNow')
     .addSeparator()
@@ -386,6 +388,7 @@ function runScheduler() {
   var sh = sheet_(REG_SHEET);
   if (sh.getLastRow() < 2) {
     runJobSchedulerSafe_(new Date());
+    runChatRemindersSafe_(new Date());
     return rebuildDirtyShiftSummaries_();
   }
   var header = headerMap_(sh);
@@ -439,7 +442,19 @@ function runScheduler() {
     }
   });
   runJobSchedulerSafe_(now);
+  runChatRemindersSafe_(now);
   rebuildDirtyShiftSummaries_();
+}
+
+/** 登録途中の人へのリマインド（スクリプト プロパティ CHAT_REMINDER が off なら送らない） */
+function runChatRemindersSafe_(now) {
+  try {
+    var off = String(PropertiesService.getScriptProperties().getProperty('CHAT_REMINDER') || '').trim().toLowerCase() === 'off';
+    if (!off) sendChatReminders_(now, false);
+  } catch (err) {
+    console.error('chat reminders failed', err && err.stack || err);
+    logError_('登録途中のリマインド', '', err);
+  }
 }
 
 /** 案件の自動処理（「案件応募」の時間の同期・出発確認）。失敗しても面接の自動送信は止めない */

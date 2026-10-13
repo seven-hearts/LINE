@@ -244,6 +244,7 @@ test('1分ごとの自動処理で、カレンダーに登録・移動・削除�
     pushMessage_ = function () { return {}; };
     logError_ = function (kind, id, err) { __errors.push(kind + ' ' + err.message); };
     runJobScheduler_ = function () {};
+    sendChatReminders_ = function () { return 0; };
   `, c);
 
   db.U1 = rec({ status: S.INTERVIEW_FIXED, interviewAt: '2099/01/11(日) 10:00' });
