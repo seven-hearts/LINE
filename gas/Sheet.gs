@@ -178,6 +178,7 @@ COLUMNS[JOB_SHEET] = [
   ['notes', '備考'],
   ['staffPay', 'スタッフ向け給与'],
   ['staffTransport', 'スタッフ向け交通費'],
+  ['detailImages', '詳細連絡の画像'], // Google ドライブのファイルID（カンマ区切り）
   ['recruit', '募集状況'],
   ['sentAt', '配信日時'],
   ['sentCount', '配信人数'],
@@ -222,7 +223,7 @@ COLUMNS[IMPORT_SHEET] = [
  * 日付・時刻は Sheets が自動で日時に変換すると読み戻すときにずれるため、文字のまま保存する。
  */
 var TEXT_COLUMNS = {};
-TEXT_COLUMNS[JOB_SHEET] = ['日程', '開始時間', '終了時間', '曜日', '売上計上月', '入金予定月', '集合時間', '現場連絡先', '配信日時', '案件ID', '枠ID', '取込ID'];
+TEXT_COLUMNS[JOB_SHEET] = ['日程', '開始時間', '終了時間', '曜日', '売上計上月', '入金予定月', '集合時間', '現場連絡先', '詳細連絡の画像', '配信日時', '案件ID', '枠ID', '取込ID'];
 
 var spreadsheetCache_ = null;
 

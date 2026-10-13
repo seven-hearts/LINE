@@ -399,6 +399,9 @@ test('詳細連絡の文面（依頼の例と同じ形）', () => {
   assert.strictEqual(f.dress, '黒ズボン、華美でない上着、スニーカー');
   assert.strictEqual(f.belongings, '筆記用具、メモ、腕時計');
   assert.strictEqual(f.place, '〒569-0096 大阪府高槻市八丁畷町１２−３　安満遺跡公園');
+  assert.strictEqual(f.contactName, '前田');
+  assert.strictEqual(f.contactPhone, '090-7873-8978');
+  assert.deepStrictEqual(plain(f.images), []);
   assert.strictEqual(ctx.detailText_(f, lohas), [
     'ロハスミーツ高槻の詳細です。', '', '内容をよく読んで交通費と出発時間をお調べください。', '',
     '■タイトル', 'ロハスミーツ高槻', '',
@@ -420,7 +423,8 @@ test('詳細連絡の文面（依頼の例と同じ形）', () => {
   const diff = ctx.detailText_(Object.assign({}, f, { timeNote: '' }), [lohas[0], Object.assign({}, lohas[1], { start: '08:00', end: '18:00' })]);
   assert.match(diff, /■時間\n9月21日\(月祝\) 9:00~17:30\n9月22日\(火祝\) 8:00~18:00\n\n/);
   // 空の項目は出さない
-  assert.doesNotMatch(ctx.detailText_(Object.assign({}, f, { meal: '', contact: '' }), lohas), /■昼食|■集合担当/);
+  assert.doesNotMatch(ctx.detailText_(Object.assign({}, f, { meal: '', contactName: '', contactPhone: '' }), lohas), /■昼食|■集合担当/);
+  assert.match(ctx.detailText_(Object.assign({}, f, { contactName: '' }), lohas), /■集合担当\n090-7873-8978\n/);
   assert.match(ctx.travelRequestText_('ロハスミーツ高槻'), /「ロハスミーツ高槻」の交通費（往復）と出発時間/);
 });
 
@@ -505,4 +509,29 @@ test('以前の「案件一覧」：D列「ポジション」→「仕事内容�
   assert.deepStrictEqual(grid[1], ['A', 'パン祭り', 'X', '案内業務', 'ST', '2026/10/08']);
   c.migrateWorkColumn_(sheet); // 2回目は何もしない
   assert.strictEqual(grid[0].length, 6);
+});
+
+test('集合担当を名前と電話番号に分ける', () => {
+  const sp = (t) => plain(ctx.splitContact_(t));
+  assert.deepStrictEqual(sp('前田\n090-7873-8978'), { name: '前田', phone: '090-7873-8978' });
+  assert.deepStrictEqual(sp('大岡（090-6757-3808）'), { name: '大岡', phone: '090-6757-3808' });
+  assert.deepStrictEqual(sp('集合担当 山本 TEL：０８０－１２３４－５６７８'), { name: '集合担当 山本', phone: '080-1234-5678' });
+  assert.deepStrictEqual(sp('前田'), { name: '前田', phone: '' });
+  assert.deepStrictEqual(sp(''), { name: '', phone: '' });
+  assert.strictEqual(ctx.joinContact_('前田', '090-7873-8978'), '前田 090-7873-8978');
+  assert.strictEqual(ctx.joinContact_('', '090-7873-8978'), '090-7873-8978');
+  // 保存した形からも元に戻せる
+  assert.deepStrictEqual(sp(ctx.joinContact_('前田', '090-7873-8978')), { name: '前田', phone: '090-7873-8978' });
+});
+
+test('詳細連絡のメッセージ：本文 → 画像（3枚まで）→ 返信のお願い（LINE の上限5通以内）', () => {
+  const f = Object.assign(plain(ctx.detailDefaults_(Object.assign({}, lohas[0], { detailImages: 'img1, img2,img3,img4' }))));
+  assert.deepStrictEqual(f.images, ['img1', 'img2', 'img3', 'img4']);
+  const msgs = plain(ctx.detailMessages_(f, lohas));
+  assert.deepStrictEqual(msgs.map((m) => m.type), ['text', 'image', 'image', 'image', 'text']);
+  assert.ok(msgs.length <= 5);
+  assert.match(msgs[0].text, /^ロハスミーツ高槻の詳細です。/);
+  assert.deepStrictEqual(msgs[1], { type: 'image', originalContentUrl: 'https://lh3.googleusercontent.com/d/img1', previewContentUrl: 'https://lh3.googleusercontent.com/d/img1' });
+  assert.match(msgs[4].text, /^【ご返信のお願い】/);
+  assert.deepStrictEqual(plain(ctx.detailMessages_(Object.assign({}, f, { images: [] }), lohas)).map((m) => m.type), ['text', 'text']);
 });

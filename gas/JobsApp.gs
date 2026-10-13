@@ -634,7 +634,11 @@ function findConfirmedCase_(caseId) {
 function detailPreview(req) {
   var c = findConfirmedCase_(req.caseId);
   var s = c.staffList.filter(function (x) { return x.userId === req.userId; })[0] || c.staffList[0];
-  return { name: s.name, text: detailText_(req.fields, s.slots), request: travelRequestText_(str_(req.fields.title)) };
+  var images = (req.fields.images || []).slice(0, DETAIL_MAX_IMAGES);
+  return {
+    name: s.name, text: detailText_(req.fields, s.slots), request: travelRequestText_(str_(req.fields.title)),
+    images: images.map(driveImageUrl_)
+  };
 }
 
 /** 詳細連絡と、交通費・出発時間の返信のお願いを送る */
@@ -644,20 +648,23 @@ function detailSend(req) {
   var targets = c.staffList.filter(function (s) { return ids.indexOf(s.userId) >= 0; });
   if (!targets.length) throw new Error('送る人を選んでください');
   var f = req.fields;
+  if ((f.images || []).length > DETAIL_MAX_IMAGES) throw new Error('画像は' + DETAIL_MAX_IMAGES + '枚までです');
 
   // 集合場所などは「案件一覧」にも保存しておく（次に送るときの初期値になる）
   readAll_(JOB_SHEET).forEach(function (x) {
     if (x.rec.caseId !== c.caseId) return;
     var changes = {};
-    ['meetingPlace', 'meetingTime', 'contact'].forEach(function (k) {
-      if (str_(f[k]) !== str_(x.rec[k])) changes[k] = str_(f[k]);
+    var saved = { meetingPlace: str_(f.meetingPlace), meetingTime: str_(f.meetingTime),
+      contact: joinContact_(f.contactName, f.contactPhone), detailImages: (f.images || []).join(',') };
+    Object.keys(saved).forEach(function (k) {
+      if (saved[k] !== str_(x.rec[k])) changes[k] = saved[k];
     });
     if (Object.keys(changes).length) updateCells_(JOB_SHEET, x.row, changes);
   });
 
   var sent = [], failed = [];
   targets.forEach(function (s) {
-    var ok = pushMessage_(s.userId, [textMessage_(detailText_(f, s.slots)), textMessage_(travelRequestText_(str_(f.title)))]);
+    var ok = pushMessage_(s.userId, detailMessages_(f, s.slots));
     if (ok) {
       sent.push(s.name);
       // 送り直したときは、前の返信を消して、もう一度返信してもらう
@@ -670,6 +677,38 @@ function detailSend(req) {
     }
   });
   return { sent: sent, failed: failed };
+}
+
+/** 詳細連絡の画像を保存するドライブのフォルダ（提出書類とは別。中の画像は「リンクを知っている全員」が見られる） */
+function detailImageFolder_() {
+  var props = PropertiesService.getScriptProperties();
+  var id = props.getProperty('DETAIL_IMAGE_FOLDER_ID');
+  if (id) {
+    try {
+      return DriveApp.getFolderById(id);
+    } catch (err) {
+      // 消された場合は作り直す
+    }
+  }
+  var folder = DriveApp.createFolder('セブンハーツ_詳細連絡の画像');
+  props.setProperty('DETAIL_IMAGE_FOLDER_ID', folder.getId());
+  return folder;
+}
+
+/** 画面で選んだ画像（画面で縮小済みの JPEG / PNG）をドライブに保存し、LINE で送れるようにする */
+function uploadDetailImage(img) {
+  var type = str_(img && img.mimeType);
+  if (['image/jpeg', 'image/png'].indexOf(type) < 0) throw new Error('画像は JPEG か PNG にしてください');
+  var bytes = Utilities.base64Decode(String(img.data || ''));
+  if (bytes.length > 10 * 1024 * 1024) throw new Error('画像が大きすぎます（10MBまで）');
+  var file = detailImageFolder_().createFile(Utilities.newBlob(bytes, type, str_(img.name) || 'image'));
+  try {
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  } catch (err) {
+    file.setTrashed(true);
+    throw new Error('画像を「リンクを知っている全員」に共有できませんでした。Google Workspace の管理者がリンクでの共有を禁止している可能性があります（' + err.message + '）');
+  }
+  return { id: file.getId(), url: driveImageUrl_(file.getId()) };
 }
 
 // ---- 交通費・出発時間の返信（Webhook の onText_ から） ----

@@ -29,6 +29,14 @@
   .msg.info { display: block; background: #eef6ee; color: #2e7d32; }
   .bar { position: fixed; left: 0; right: 0; bottom: 0; padding: 10px 16px; background: #fff; border-top: 1px solid var(--line); display: flex; gap: 8px; align-items: center; }
   .hint { color: var(--muted); font-size: 11px; }
+  input[type=tel] { width: 100%; font: inherit; padding: 5px 6px; border: 1px solid var(--line); border-radius: 4px; }
+  .images { display: flex; gap: 8px; flex-wrap: wrap; margin: 2px 0 6px; }
+  .thumb { position: relative; width: 96px; height: 96px; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: #f3f3f3; }
+  .thumb img { width: 100%; height: 100%; object-fit: cover; }
+  .thumb button { position: absolute; top: 2px; right: 2px; padding: 0 6px; font-size: 12px; line-height: 18px; border-radius: 9px; background: rgba(0,0,0,.6); color: #fff; border: none; }
+  .pick { display: inline-block; padding: 5px 12px; border: 1px dashed var(--brand); border-radius: 4px; color: var(--brand); cursor: pointer; font-size: 12px; }
+  .pick.off { opacity: .4; pointer-events: none; }
+  .bubble img { max-width: 160px; max-height: 160px; border-radius: 6px; display: block; }
 </style>
 </head>
 <body>
@@ -45,10 +53,15 @@
         <label class="l">場所</label><input type="text" data-f="place">
         <label class="l">時間の注意書き（「※」の後に入ります）</label><input type="text" data-f="timeNote" placeholder="例：多少前後する可能性があります。">
         <label class="l">集合場所</label><textarea rows="2" data-f="meetingPlace"></textarea>
-        <div class="row"><div><label class="l">集合時間</label><input type="text" data-f="meetingTime" placeholder="例：開始10分前"></div><div><label class="l">集合担当（名前・電話番号）</label><input type="text" data-f="contact" placeholder="例：前田 090-0000-0000"></div></div>
+        <label class="l">集合時間</label><input type="text" data-f="meetingTime" placeholder="例：開始10分前">
+        <div class="row"><div><label class="l">集合担当（名前）</label><input type="text" data-f="contactName" placeholder="例：前田"></div><div><label class="l">集合担当（電話番号）</label><input type="tel" data-f="contactPhone" placeholder="例：090-0000-0000"></div></div>
         <label class="l">服装</label><input type="text" data-f="dress">
         <div class="row"><div><label class="l">ギャランティ</label><input type="text" data-f="pay" placeholder="例：時給1180円＋交通費"></div><div><label class="l">昼食</label><input type="text" data-f="meal" placeholder="例：500円支給"></div></div>
         <label class="l">持ち物</label><input type="text" data-f="belongings">
+        <label class="l">画像（地図・集合場所の写真など。3枚まで。本文のあとに送ります）</label>
+        <div id="images" class="images"></div>
+        <label class="pick" id="pickLabel"><input type="file" id="pick" accept="image/jpeg,image/png" multiple hidden>＋ 画像を選ぶ</label>
+        <span id="upStatus" class="hint"></span>
       </div>
       <div>
         <h2>送る人</h2>
@@ -70,11 +83,67 @@ var data = null, current = null;
 function $(id) { return document.getElementById(id); }
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
 function showMsg(text, kind) { var m = $('msg'); m.textContent = text; m.className = 'msg ' + (kind || 'err'); }
+var MAX_IMAGES = 3;
+var images = []; // { id, url }（url は画面に表示する画像）
 function fields() {
   var f = {};
   Array.prototype.forEach.call(document.querySelectorAll('[data-f]'), function (el) { f[el.dataset.f] = el.value; });
+  f.images = images.map(function (x) { return x.id; });
   return f;
 }
+
+function renderImages() {
+  $('images').innerHTML = images.map(function (x, i) {
+    return '<div class="thumb"><img src="' + esc(x.url) + '" alt=""><button data-del-img="' + i + '" title="外す">×</button></div>';
+  }).join('');
+  $('pickLabel').className = 'pick' + (images.length >= MAX_IMAGES ? ' off' : '');
+}
+
+// 長い辺を1600pxまでに縮小して JPEG にする（LINE の画像の上限と送信時間のため）
+function shrink(file) {
+  return new Promise(function (resolve, reject) {
+    var reader = new FileReader();
+    reader.onerror = function () { reject(new Error('画像を読み込めませんでした')); };
+    reader.onload = function () {
+      var img = new Image();
+      img.onerror = function () { reject(new Error('画像を読み込めませんでした（JPEG か PNG を選んでください）')); };
+      img.onload = function () {
+        var scale = Math.min(1, 1600 / Math.max(img.width, img.height));
+        var canvas = document.createElement('canvas');
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        var g = canvas.getContext('2d');
+        g.fillStyle = '#fff';
+        g.fillRect(0, 0, canvas.width, canvas.height);
+        g.drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/jpeg', 0.85));
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+$('pick').onchange = function () {
+  var files = Array.prototype.slice.call(this.files, 0, MAX_IMAGES - images.length);
+  this.value = '';
+  if (!files.length) return;
+  $('send').disabled = true;
+  var next = function () {
+    var file = files.shift();
+    if (!file) { $('upStatus').textContent = ''; preview(); return; }
+    $('upStatus').textContent = '画像を保存しています…';
+    shrink(file).then(function (dataUrl) {
+      google.script.run.withSuccessHandler(function (r) {
+        images.push({ id: r.id, url: dataUrl });
+        renderImages();
+        next();
+      }).withFailureHandler(function (e) { $('upStatus').textContent = ''; showMsg(e.message); preview(); })
+        .uploadDetailImage({ name: file.name.replace(/\.\w+$/, '') + '.jpg', mimeType: 'image/jpeg', data: dataUrl.split(',')[1] });
+    }).catch(function (e) { $('upStatus').textContent = ''; showMsg(e.message); preview(); });
+  };
+  next();
+};
 function checked() {
   return Array.prototype.map.call(document.querySelectorAll('input[name=staff]:checked'), function (x) { return x.value; });
 }
@@ -96,6 +165,8 @@ $('case').onchange = function () { pick(+this.value); };
 function pick(i) {
   current = data.cases[i];
   Array.prototype.forEach.call(document.querySelectorAll('[data-f]'), function (el) { el.value = current.fields[el.dataset.f] || ''; });
+  images = (current.fields.images || []).map(function (id) { return { id: id, url: 'https://lh3.googleusercontent.com/d/' + encodeURIComponent(id) }; });
+  renderImages();
   $('staff').innerHTML = current.staff.map(function (s) {
     var state = s.fare !== '' && s.departure ? '<span class="got">返信済み：交通費 ' + esc(s.fare) + '円・出発 ' + esc(s.departure) + '</span>'
       : s.sent ? '<span class="sent">送信済み（返信待ち）</span>' : '';
@@ -111,7 +182,9 @@ function preview() {
   $('send').disabled = true;
   google.script.run.withSuccessHandler(function (r) {
     $('pvName').textContent = '（' + r.name + ' さんの場合）';
-    $('preview').innerHTML = '<div class="bubble">' + esc(r.text) + '</div><div class="bubble">' + esc(r.request) + '</div>';
+    $('preview').innerHTML = '<div class="bubble">' + esc(r.text) + '</div>' +
+      images.map(function (x) { return '<div class="bubble"><img src="' + esc(x.url) + '" alt=""></div>'; }).join('') +
+      '<div class="bubble">' + esc(r.request) + '</div>';
     var n = checked().length;
     $('send').disabled = !n;
     $('send').textContent = n ? n + '人に送る' : '送る';
@@ -121,6 +194,13 @@ function preview() {
 
 $('pv').onclick = preview;
 document.addEventListener('change', function (e) { if (e.target.name === 'staff') preview(); });
+document.addEventListener('click', function (e) {
+  var i = e.target.dataset && e.target.dataset.delImg;
+  if (i === undefined) return;
+  images.splice(+i, 1);
+  renderImages();
+  preview();
+});
 document.addEventListener('input', function (e) { if (e.target.dataset && e.target.dataset.f) $('send').disabled = true; });
 
 $('send').onclick = function () {

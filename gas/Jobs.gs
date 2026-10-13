@@ -574,6 +574,7 @@ function detailDefaults_(row) {
   var d = splitDress_(row.dress);
   var meal = toNum_(row.meal);
   var pay = str_(row.staffPay);
+  var contact = splitContact_(row.contact);
   var place = str_(row.address);
   if (row.place && place.indexOf(row.place) < 0) place = (place ? place + '　' : '') + row.place;
   return {
@@ -583,11 +584,13 @@ function detailDefaults_(row) {
     timeNote: /前後/.test(str_(row.notes)) ? '多少前後する可能性があります。' : '',
     meetingPlace: str_(row.meetingPlace),
     meetingTime: str_(row.meetingTime),
-    contact: str_(row.contact),
+    contactName: contact.name,
+    contactPhone: contact.phone,
     dress: d.dress,
     pay: pay && !/交通費/.test(pay) ? pay + '＋交通費' : pay,
     meal: meal !== null ? (meal > 0 ? meal + '円支給' : '') : str_(row.meal),
-    belongings: d.belongings
+    belongings: d.belongings,
+    images: str_(row.detailImages).split(',').map(str_).filter(Boolean)
   };
 }
 
@@ -614,12 +617,45 @@ function detailText_(f, slots) {
   section('時間', time);
   section('集合場所', f.meetingPlace);
   section('集合時間', f.meetingTime);
-  if (str_(f.contact)) parts.push('■集合担当：' + str_(f.contact));
+  var name = str_(f.contactName), phone = str_(f.contactPhone);
+  if (name) parts.push('■集合担当：' + name + (phone ? '\n' + phone : ''));
+  else if (phone) parts.push('■集合担当\n' + phone);
   section('服装', f.dress);
   section('ギャランティ', f.pay);
   section('昼食', f.meal);
   section('持ち物', f.belongings);
   return parts.join('\n\n');
+}
+
+/** 「前田 090-7873-8978」→ 名前と電話番号に分ける */
+function splitContact_(text) {
+  var s = str_(text);
+  var m = /(0\d{1,4}[-‐－ー−()（）\s]?\d{1,4}[-‐－ー−()（）\s]?\d{3,4})/.exec(toHalfWidth_(s));
+  if (!m) return { name: s.replace(/\s+/g, ' '), phone: '' };
+  var phone = m[1].replace(/[‐－ー−]/g, '-');
+  var name = toHalfWidth_(s).replace(m[1], '').replace(/[：:（）()、,／/]|TEL|電話|携帯/gi, ' ').replace(/\s+/g, ' ').trim();
+  return { name: name, phone: phone.trim() };
+}
+
+/** 集合担当を「案件一覧」に保存する形（1つの列） */
+function joinContact_(name, phone) {
+  return [str_(name), str_(phone)].filter(Boolean).join(' ');
+}
+
+/** 詳細連絡に添付できる画像の数（本文・画像・返信のお願いで、LINE の1回の上限5通に収める） */
+var DETAIL_MAX_IMAGES = 3;
+
+/** Google ドライブの画像を LINE で表示できる URL（「リンクを知っている全員」が見られる設定が必要） */
+function driveImageUrl_(id) {
+  return 'https://lh3.googleusercontent.com/d/' + encodeURIComponent(id);
+}
+
+/** 詳細連絡で送るメッセージ：本文 → 画像（最大3枚）→ 交通費・出発時間の返信のお願い */
+function detailMessages_(f, slots) {
+  var images = (f.images || []).slice(0, DETAIL_MAX_IMAGES).map(function (id) {
+    return { type: 'image', originalContentUrl: driveImageUrl_(id), previewContentUrl: driveImageUrl_(id) };
+  });
+  return [{ type: 'text', text: detailText_(f, slots) }].concat(images, [{ type: 'text', text: travelRequestText_(str_(f.title)) }]);
 }
 
 /** 詳細連絡のあとに送る、交通費と出発時間の返信のお願い */
