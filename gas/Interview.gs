@@ -1,9 +1,11 @@
 /**
- * 書類選考〜面接（LINEのビデオ通話）の自動化。
+ * 書類選考〜面接（Google Meet または LINEのビデオ通話）の自動化。
+ * 面接の方法はスクリプト プロパティ INTERVIEW_METHOD で選ぶ（meet：Google Meet（初期値）／line：LINEのビデオ通話（LINEコール））。
  *
  * - 「書類通過」→ 応募者の希望日時から面接候補をボタンで送る（onStatusEdit から）
- * - 応募者がボタンで日時を選ぶ → 「面接確定」＋ ビデオ通話の使い方を返信（Webhook の postback）
- * - 面接当日の朝9時にリマインド、面接の時刻に「ビデオ通話する」ボタンを送る（runScheduler：1分ごと）
+ * - 応募者がボタンで日時を選ぶ → 「面接確定」＋ 面接の受け方を返信（Webhook の postback）
+ * - Google Meet：カレンダーの予定に Meet の会議を付け、URLを「Google Meet URL」列に書く（runScheduler）
+ * - 面接当日の朝9時にリマインド、面接の時刻に参加用のボタンを送る（runScheduler：1分ごと）
  * - 「書類落選」→ すぐに不採用通知を送る（onStatusEdit から。送れなかった場合は runScheduler が送り直す）
  * - 「不採用」（面接後）→ 翌日の午前10時に不採用通知を送る（runScheduler）
  *
@@ -19,6 +21,24 @@ var CALL_WINDOW_MINUTES = 60;   // 面接時刻を過ぎてもこの時間内な
 var BRAND_BROWN = '#381E19';
 
 var OFFER_NONE = 'none';
+
+var METHOD_MEET = 'meet';
+var METHOD_LINE = 'line';
+var MEET_RETRY_MINUTES = 10; // Meet の会議を作れなかったとき、次に試すまでの時間
+
+function isMeet_(method) {
+  return method === METHOD_MEET;
+}
+
+/** 設定されている面接の方法（文面をつくる関数には、これを引数で渡す） */
+function interviewMethod_() {
+  return getConfig_().interviewMethod;
+}
+
+/** 「📹 Google Meet（ビデオ通話・20〜30分程度）」 */
+function methodLine_(method) {
+  return isMeet_(method) ? '📹 Google Meet（ビデオ通話・' + INTERVIEW_LENGTH + '）' : '📹 LINEのビデオ通話（' + INTERVIEW_LENGTH + '）';
+}
 
 // ---- 文面 ----
 
@@ -49,7 +69,8 @@ function interviewRejectText_(rec) {
     'セブンハーツ 採用担当';
 }
 
-function callGuideText_() {
+function callGuideText_(method) {
+  if (isMeet_(method)) return meetGuideText_();
   return '面接は、LINEのビデオ通話で行います（' + INTERVIEW_LENGTH + '）。\n\n' +
     '【当日の流れ】\n' +
     '① 面接の時間になると、このトークに「📹 ビデオ通話する」ボタンが届きます\n' +
@@ -66,25 +87,69 @@ function callGuideText_() {
     '※ 時間を過ぎてもボタンが届かない場合や、つながらない場合は、このトークでお知らせください';
 }
 
-function fixedText_(rec, at) {
+function meetGuideText_() {
+  return '面接は、ビデオ通話「Google Meet」で行います（' + INTERVIEW_LENGTH + '）。\n\n' +
+    '【当日の流れ】\n' +
+    '① 当日の朝と面接の時間に、このトークに「Google Meet に参加する」ボタンが届きます\n' +
+    '② 面接の時間になったらボタンをタップし、お名前を入力して「参加をリクエスト」を押してください\n' +
+    '③ 担当者が参加を承認すると、面接が始まります\n\n' +
+    '【事前にご準備ください】\n' +
+    '・スマホに「Google Meet」アプリを入れておいてください（無料。Googleアカウントがなくても参加できます）\n' +
+    '・静かで明るく、顔がはっきり映る場所\n' +
+    '・電波の安定した環境（ビデオ通話は通信量が多いため、Wi-Fiがおすすめです）\n' +
+    '・スマホの充電と、画面が揺れないようにスマホを立てておけるもの\n' +
+    '・面接にふさわしい服装・身だしなみ\n' +
+    '・イヤホンがあると聞き取りやすくなります\n\n' +
+    '※ 通話料はかかりません（データ通信を使います）\n' +
+    '※ 時間を過ぎてもボタンが届かない場合や、参加できない場合は、このトークでお知らせください';
+}
+
+function fixedText_(rec, at, method) {
   return fullName_(rec) + ' 様\n\n面接の日時が決まりました。\n\n' +
     '📅 ' + at + '\n' +
-    '📹 LINEのビデオ通話（' + INTERVIEW_LENGTH + '）\n\n' +
+    methodLine_(method) + '\n\n' +
     '当日の朝' + REMINDER_HOUR + '時にリマインドをお送りします。\n' +
     'ご都合が悪くなった場合は、このトークでお知らせください。';
 }
 
-function reminderText_(rec) {
+function reminderText_(rec, method) {
   return fullName_(rec) + ' 様\n\n本日は面接の日です。よろしくお願いいたします。\n\n' +
     '📅 ' + rec.interviewAt + '\n' +
-    '📹 LINEのビデオ通話（' + INTERVIEW_LENGTH + '）\n\n' +
-    'お時間になりましたら、このトークに「ビデオ通話する」ボタンをお送りします。' +
-    '静かで明るく、電波の良い場所でお待ちください。\n\n' +
+    methodLine_(method) + '\n\n' +
+    (isMeet_(method)
+      ? 'お時間になりましたら、このトークに届く「Google Meet に参加する」ボタンから参加してください。' +
+        'まだの方は、今のうちに「Google Meet」アプリを入れておいてください。\n\n'
+      : 'お時間になりましたら、このトークに「ビデオ通話する」ボタンをお送りします。' +
+        '静かで明るく、電波の良い場所でお待ちください。\n\n') +
     'ご都合が悪くなった場合は、このトークでお知らせください。';
 }
 
-/** 面接の時刻に送るメッセージ。通話用URLがなければトーク画面の通話ボタンを案内する */
-function callMessages_(rec, callUrl) {
+/** 当日の朝のリマインド。Google Meet なら参加用のボタンも付ける（下見やアプリの準備に使えるように） */
+function reminderMessages_(rec, method) {
+  var messages = [textMessage_(reminderText_(rec, method))];
+  if (isMeet_(method) && rec.meetUrl) {
+    messages.push(buttonMessage_('面接の参加用ボタンです（面接の時間になったら押してください）', 'Google Meet に参加する', rec.meetUrl));
+  }
+  return messages;
+}
+
+/**
+ * 面接の時刻に送るメッセージ。
+ * Google Meet：参加用のボタン（URLがまだなければ、担当者から送ると伝える）
+ * LINEコール：通話用URLがあればボタン、なければトーク画面の通話ボタンを案内する
+ */
+function callMessages_(rec, callUrl, method) {
+  if (isMeet_(method)) {
+    if (!rec.meetUrl) {
+      return [textMessage_(fullName_(rec) + ' 様\n\n面接のお時間になりました。\n' +
+        '参加用のURLを担当者からこのトークでお送りしますので、少々お待ちください。')];
+    }
+    return [buttonMessage_(
+      fullName_(rec) + ' 様\n面接のお時間になりました。\n下のボタンから Google Meet を開き、お名前を入力して「参加をリクエスト」を押してください。',
+      'Google Meet に参加する',
+      rec.meetUrl
+    )];
+  }
   if (callUrl) {
     return [buttonMessage_(
       fullName_(rec) + ' 様\n面接のお時間になりました。\n下のボタンを押して、「ビデオ通話」で発信してください。',
@@ -97,7 +162,7 @@ function callMessages_(rec, callUrl) {
 }
 
 /** 面接候補のメッセージ（日時ボタン＋「どれも都合が合わない」） */
-function offerMessage_(rec, slots) {
+function offerMessage_(rec, slots, method) {
   var buttons = slots.map(function (s) {
     return {
       type: 'button', style: 'primary', color: BRAND_BROWN, height: 'sm',
@@ -121,7 +186,8 @@ function offerMessage_(rec, slots) {
             type: 'text', wrap: true, size: 'sm',
             text: fullName_(rec) + ' 様\n\nこのたびはセブンハーツにご応募いただき、ありがとうございます。\n' +
               '書類選考の結果、ぜひ面接をさせていただきたく、ご連絡いたしました。\n\n' +
-              '面接はLINEの無料ビデオ通話（' + INTERVIEW_LENGTH + '）で行います。ご都合のよい日時を下からお選びください。'
+              '面接は' + (isMeet_(method) ? 'ビデオ通話「Google Meet」' : 'LINEの無料ビデオ通話') +
+              '（' + INTERVIEW_LENGTH + '）で行います。ご都合のよい日時を下からお選びください。'
           }
         ]
       },
@@ -169,9 +235,10 @@ function rejectDueAt_(changedAt, status) {
 
 /**
  * 1人分の、今送るべきメッセージの種類。
+ * Google Meet では、参加用のURLができるまで当日の朝のリマインドを待つ（面接の時刻の案内は、URLがなくても送る）。
  * @return {string[]} 'docReject' / 'interviewReject' / 'reminder' / 'call'
  */
-function scheduledActions_(rec, now) {
+function scheduledActions_(rec, now, method) {
   var actions = [];
   if ((rec.status === STATUS.DOC_FAILED || rec.status === STATUS.REJECTED) && !rec.rejectNotifiedAt) {
     var changed = parseTimestamp_(rec.statusChangedAt);
@@ -182,7 +249,7 @@ function scheduledActions_(rec, now) {
   if (rec.status === STATUS.INTERVIEW_FIXED) {
     var at = parseDateTime_(rec.interviewAt, now);
     if (at) {
-      if (!rec.reminderSentAt && now < at && now.getHours() >= REMINDER_HOUR &&
+      if (!rec.reminderSentAt && now < at && now.getHours() >= REMINDER_HOUR && (!isMeet_(method) || rec.meetUrl) &&
           startOfDay_(now).getTime() === startOfDay_(at).getTime()) {
         actions.push('reminder');
       }
@@ -192,6 +259,11 @@ function scheduledActions_(rec, now) {
     }
   }
   return actions;
+}
+
+/** Google Meet の会議を付けるべきか（面接確定でカレンダーの予定があり、まだ Meet のURLがない） */
+function needsMeet_(rec, method) {
+  return isMeet_(method) && rec.status === STATUS.INTERVIEW_FIXED && !!rec.calendarEventId && !rec.meetUrl;
 }
 
 /**
@@ -211,17 +283,23 @@ function calendarAction_(rec, now) {
   return 'delete';
 }
 
-function calendarTitle_(rec) {
-  return '面接（LINEビデオ通話）' + fullName_(rec) + ' さん';
+function calendarTitle_(rec, method) {
+  return '面接（' + (isMeet_(method) ? 'Google Meet' : 'LINEビデオ通話') + '）' + fullName_(rec) + ' さん';
 }
 
-function calendarDescription_(rec, sheetUrl) {
-  var lines = [
+function calendarDescription_(rec, sheetUrl, method) {
+  var lines = isMeet_(method) ? [
+    'セブンハーツ スタッフ面接（Google Meet・ビデオ通話・' + INTERVIEW_LENGTH + '）',
+    '面接の時刻に応募者へ「Google Meet に参加する」ボタンが自動で送られます。' +
+      'この予定の Meet に参加して待ち、応募者から参加リクエストが来たら「承認」してください。'
+  ] : [
     'セブンハーツ スタッフ面接（LINEのビデオ通話・' + INTERVIEW_LENGTH + '）',
-    '面接の時刻に応募者へ「ビデオ通話する」ボタンが自動で送られます。LINE公式アカウントアプリで着信に応答してください。',
+    '面接の時刻に応募者へ「ビデオ通話する」ボタンが自動で送られます。LINE公式アカウントアプリで着信に応答してください。'
+  ];
+  lines = lines.concat([
     '',
     '氏名：' + fullName_(rec) + (rec.lastNameKana ? '（' + rec.lastNameKana + ' ' + rec.firstNameKana + '）' : '')
-  ];
+  ]);
   if (rec.age) lines.push('年齢：' + rec.age + '歳（登録時）');
   if (rec.phone) lines.push('電話番号：' + rec.phone);
   if (rec.areas) lines.push('希望エリア：' + rec.areas);
@@ -242,7 +320,7 @@ function sendInterviewOffer_(rec) {
     });
     return;
   }
-  if (!pushMessage_(rec.userId, [offerMessage_(rec, slots)])) return;
+  if (!pushMessage_(rec.userId, [offerMessage_(rec, slots, interviewMethod_())])) return;
   writeRecord_(REG_SHEET, rec.userId, {
     status: STATUS.INTERVIEW_OFFERED, statusChangedAt: now_(), offerSentAt: now_(), updatedAt: now_()
   });
@@ -259,7 +337,8 @@ function sendInterviewFixedByAdmin_(rec) {
     return;
   }
   var formatted = formatDateTime_(at);
-  pushMessage_(rec.userId, [textMessage_(fixedText_(rec, formatted)), textMessage_(callGuideText_())]);
+  var method = interviewMethod_();
+  pushMessage_(rec.userId, [textMessage_(fixedText_(rec, formatted, method)), textMessage_(callGuideText_(method))]);
   writeRecord_(REG_SHEET, rec.userId, {
     interviewAt: formatted, reminderSentAt: '', callSentAt: '', updatedAt: now_()
   });
@@ -303,7 +382,8 @@ function onInterviewPostback_(ev, userId, params) {
     status: STATUS.INTERVIEW_FIXED, interviewAt: chosen, statusChangedAt: now_(),
     reminderSentAt: '', callSentAt: '', updatedAt: now_()
   });
-  replyMessage_(ev.replyToken, [textMessage_(fixedText_(rec, chosen)), textMessage_(callGuideText_())]);
+  var method = interviewMethod_();
+  replyMessage_(ev.replyToken, [textMessage_(fixedText_(rec, chosen, method)), textMessage_(callGuideText_(method))]);
   notifyAdmin_('面接日時の確定（' + chosen + '）', fullName_(rec));
 }
 
@@ -374,7 +454,7 @@ function sendRejectionsNow() {
     ui.ButtonSet.OK_CANCEL);
   if (answer !== ui.Button.OK) return;
   targets.forEach(function (rec) {
-    runAction_(rec, rec.status === STATUS.DOC_FAILED ? 'docReject' : 'interviewReject', '');
+    runAction_(rec, rec.status === STATUS.DOC_FAILED ? 'docReject' : 'interviewReject', '', '');
   });
   ui.alert('送信しました。「不採用通知の送信日時」列で確認できます。');
 }
@@ -396,6 +476,7 @@ function runScheduler() {
   var now = new Date();
   var cfg = getConfig_();
   var callUrl = cfg.callUrl;
+  var method = cfg.interviewMethod;
   // 「カレンダー予定ID」の列がない（setup を実行し直していない）ときと、off のときはカレンダーに登録しない
   var useCalendar = cfg.calendarId.toLowerCase() !== 'off' && header[labelOf_(REG_SHEET, 'calendarEventId')] !== undefined;
   var calendar = null;
@@ -412,7 +493,7 @@ function runScheduler() {
     if (calAction && !cache.get('cal:' + rec.userId)) {
       try {
         if (!calendar) calendar = interviewCalendar_();
-        syncInterviewCalendar_(calendar, rec, calAction, cfg.interviewMinutes, now);
+        syncInterviewCalendar_(calendar, rec, calAction, cfg.interviewMinutes, now, method);
       } catch (err) {
         console.error('calendar sync failed', calAction, rec.userId, err && err.stack || err);
         logError_('カレンダー：' + calAction + '（1時間後にやり直します）', rec.userId, err);
@@ -424,9 +505,24 @@ function runScheduler() {
         }
       }
     }
-    scheduledActions_(rec, now).forEach(function (action) {
+    // Google Meet の会議を付ける（作成に少し時間がかかることがあるので、URLが返るまで毎分確認する）
+    if (useCalendar && needsMeet_(rec, method) && !cache.get('meet:' + rec.userId)) {
       try {
-        runAction_(rec, action, callUrl);
+        if (!calendar) calendar = interviewCalendar_();
+        var url = ensureMeetLink_(calendar.getId(), rec.calendarEventId);
+        if (url) {
+          writeRecord_(REG_SHEET, rec.userId, { meetUrl: url });
+          rec.meetUrl = url;
+        }
+      } catch (err) {
+        console.error('meet failed', rec.userId, err && err.stack || err);
+        logError_('Google Meet の作成（' + MEET_RETRY_MINUTES + '分後にやり直します）', rec.userId, err);
+        cache.put('meet:' + rec.userId, '1', MEET_RETRY_MINUTES * 60);
+      }
+    }
+    scheduledActions_(rec, now, method).forEach(function (action) {
+      try {
+        runAction_(rec, action, callUrl, method);
       } catch (err) {
         console.error('scheduler failed', action, rec.userId, err && err.stack || err);
         logError_('自動送信：' + action, rec.userId, err);
@@ -467,7 +563,7 @@ function runJobSchedulerSafe_(now) {
   }
 }
 
-function runAction_(rec, action, callUrl) {
+function runAction_(rec, action, callUrl, method) {
   switch (action) {
     case 'docReject':
       if (pushMessage_(rec.userId, [textMessage_(docRejectText_(rec))])) {
@@ -480,13 +576,16 @@ function runAction_(rec, action, callUrl) {
       }
       return;
     case 'reminder':
-      if (pushMessage_(rec.userId, [textMessage_(reminderText_(rec))])) {
+      if (pushMessage_(rec.userId, reminderMessages_(rec, method))) {
         writeRecord_(REG_SHEET, rec.userId, { reminderSentAt: now_() });
       }
       return;
     case 'call':
-      if (pushMessage_(rec.userId, callMessages_(rec, callUrl))) {
+      if (pushMessage_(rec.userId, callMessages_(rec, callUrl, method))) {
         writeRecord_(REG_SHEET, rec.userId, { callSentAt: now_() });
+        if (isMeet_(method) && !rec.meetUrl) {
+          notifyAdmin_('面接の Google Meet のURLがありません。トークで参加用のURLを送ってください', fullName_(rec));
+        }
       }
       return;
   }
@@ -510,17 +609,19 @@ function findEvent_(calendar, id) {
 }
 
 /** calendarAction_ の結果のとおりにカレンダーの予定を作る・動かす・消す */
-function syncInterviewCalendar_(calendar, rec, action, minutes, now) {
+function syncInterviewCalendar_(calendar, rec, action, minutes, now, method) {
   if (action === 'delete') {
     var old = findEvent_(calendar, rec.calendarEventId);
     if (old) old.deleteEvent();
-    writeRecord_(REG_SHEET, rec.userId, { calendarEventId: '', calendarAt: '' });
+    writeRecord_(REG_SHEET, rec.userId, { calendarEventId: '', calendarAt: '', meetUrl: '' });
+    rec.calendarEventId = '';
+    rec.meetUrl = '';
     return;
   }
   var at = parseDateTime_(rec.interviewAt, now);
   var end = new Date(at.getTime() + minutes * 60000);
-  var title = calendarTitle_(rec);
-  var description = calendarDescription_(rec, spreadsheet_().getUrl());
+  var title = calendarTitle_(rec, method);
+  var description = calendarDescription_(rec, spreadsheet_().getUrl(), method);
   var ev = action === 'update' ? findEvent_(calendar, rec.calendarEventId) : null;
   if (ev) {
     ev.setTime(at, end);
@@ -530,5 +631,32 @@ function syncInterviewCalendar_(calendar, rec, action, minutes, now) {
     ev = calendar.createEvent(title, at, end, { description: description });
     ev.addPopupReminder(10);
   }
-  writeRecord_(REG_SHEET, rec.userId, { calendarEventId: ev.getId(), calendarAt: formatDateTime_(at) });
+  var fields = { calendarEventId: ev.getId(), calendarAt: formatDateTime_(at) };
+  // 予定を作り直した（手で消されていた）ときは、前の Meet は使えないので作り直す
+  if (ev.getId() !== rec.calendarEventId) fields.meetUrl = '';
+  writeRecord_(REG_SHEET, rec.userId, fields);
+  rec.calendarEventId = fields.calendarEventId;
+  if (fields.meetUrl === '') rec.meetUrl = '';
+}
+
+/**
+ * カレンダーの予定に Google Meet の会議を付けて、URLを返す。
+ * 会議の作成には少し時間がかかることがあり、その間は '' を返す（次の回にもう一度確認する）。
+ * Apps Script の「サービス」で Google Calendar API（高度なサービス）を追加しておく必要がある。
+ */
+function ensureMeetLink_(calendarId, eventId) {
+  if (typeof Calendar === 'undefined') {
+    throw new Error('Google Calendar API（高度なサービス）が追加されていません。Apps Script の「サービス ＋」で Google Calendar API を追加してください');
+  }
+  // CalendarApp の予定ID は「xxx@google.com」。Calendar API では @ より前を使う
+  var id = String(eventId).split('@')[0];
+  var ev = Calendar.Events.get(calendarId, id);
+  if (ev.hangoutLink) return ev.hangoutLink;
+  var pending = ev.conferenceData && ev.conferenceData.createRequest &&
+    ev.conferenceData.createRequest.status && ev.conferenceData.createRequest.status.statusCode === 'pending';
+  if (pending) return '';
+  ev = Calendar.Events.patch({
+    conferenceData: { createRequest: { requestId: Utilities.getUuid(), conferenceSolutionKey: { type: 'hangoutsMeet' } } }
+  }, calendarId, id, { conferenceDataVersion: 1 });
+  return ev.hangoutLink || '';
 }

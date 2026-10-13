@@ -145,7 +145,10 @@ function statusText_(rec) {
     case STATUS.RESCHEDULE:
       return name + '担当者から面接日程のご相談をさせていただきますので、少々お待ちください。';
     case STATUS.INTERVIEW_FIXED:
-      return name + '面接日時：' + rec.interviewAt + '（LINEのビデオ通話・' + INTERVIEW_LENGTH + '）\n当日、時間になりましたら「ビデオ通話する」ボタンをお送りします。';
+      return name + '面接日時：' + rec.interviewAt + '\n' + methodLine_(interviewMethod_()) + '\n' +
+        (isMeet_(interviewMethod_())
+          ? '当日の朝と面接の時間に、「Google Meet に参加する」ボタンをお送りします。'
+          : '当日、時間になりましたら「ビデオ通話する」ボタンをお送りします。');
     case STATUS.HIRED:
     case STATUS.DOC_REQUESTED:
       return name + '書類のご提出をお待ちしています。「書類」と送信すると提出フォームを開けます。';

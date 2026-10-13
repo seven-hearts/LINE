@@ -83,6 +83,7 @@ COLUMNS[REG_SHEET] = [
   ['shiftRequestedMonth', 'シフト提出の案内（送信済みの月）'],
   ['calendarEventId', 'カレンダー予定ID'],
   ['calendarAt', 'カレンダーに登録した面接日時'],
+  ['meetUrl', 'Google Meet URL'],
   ['note', '自己PR・備考'],
   ['referralSource', '当社を知ったきっかけ'],
   ['privacyConsentAt', '個人情報同意日時'],

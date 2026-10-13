@@ -31,6 +31,8 @@ function getConfig_() {
     adminEmail: p.ADMIN_EMAIL || '',
     privacyPolicyUrl: p.PRIVACY_POLICY_URL || DEFAULT_PRIVACY_POLICY_URL,
     callUrl: (p.CALL_URL || '').trim(),
+    // 面接の方法：meet（Google Meet。初期値）/ line（LINEコール）
+    interviewMethod: (p.INTERVIEW_METHOD || '').trim().toLowerCase() === 'line' ? 'line' : 'meet',
     // 面接を登録する Google カレンダー（空ならスクリプトを実行する人のメインのカレンダー、off なら登録しない）
     calendarId: (p.CALENDAR_ID || '').trim(),
     interviewMinutes: /^\d+$/.test((p.INTERVIEW_MINUTES || '').trim()) ? +p.INTERVIEW_MINUTES.trim() : 30,
@@ -92,7 +94,7 @@ function doPost(e) {
  * コードの版。コードを変えるたびに更新する。
  * checkSettings がウェブアプリ（デプロイ済み）の版と比べて、デプロイし忘れを見つける。
  */
-var APP_VERSION = '2026-10-13.11';
+var APP_VERSION = '2026-10-13.12';
 
 function doGet() {
   return json_({ ok: true, service: 'sevenhearts-staff-registration', version: APP_VERSION });
@@ -174,7 +176,7 @@ function setup() {
 /**
  * インストール型トリガー（setup で登録）。「スタッフ登録」シートでステータスを変えたときの処理。
  * - 書類通過 → 面接候補を送って「面接日程調整中」に
- * - 面接確定（管理者が手入力した場合）→ 確定の連絡とビデオ通話の使い方を送る
+ * - 面接確定（管理者が手入力した場合）→ 確定の連絡と面接の受け方（Google Meet または LINEのビデオ通話）を送る
  * - 書類落選 → すぐに不採用通知を送る
  * - 不採用 → 変更時刻を記録（通知は runScheduler が翌日の午前10時に送る）
  * - 採用 → 書類提出の案内を送って「書類依頼済」に

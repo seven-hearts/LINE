@@ -94,8 +94,24 @@ function checkSettings() {
       ng('Google カレンダーを使えません：' + err.message + '。setup を実行してカレンダーの権限を許可するか、CALENDAR_ID を確認してください');
     }
   }
+  // 面接の方法
+  var method = (props.INTERVIEW_METHOD || '').trim().toLowerCase() === 'line' ? 'line' : 'meet';
+  if (method === 'meet') {
+    if (calId.toLowerCase() === 'off') {
+      ng('面接は Google Meet ですが、CALENDAR_ID が off です。Meet の会議はカレンダーの予定に付けるため、CALENDAR_ID を空にするか、カレンダーの ID を入れてください');
+    } else if (typeof Calendar === 'undefined') {
+      ng('面接は Google Meet ですが、Google Calendar API（高度なサービス）が追加されていません。' +
+        'Apps Script の左の「サービス ＋」で「Google Calendar API」を追加するか、appsscript.json を貼り直してください');
+    } else {
+      ok('面接は Google Meet で行います（カレンダーの予定に Meet の会議を付け、URLを応募者に送ります）');
+    }
+  } else {
+    ok('面接は LINEコールで行います（INTERVIEW_METHOD = line）');
+  }
   var callUrl = (props.CALL_URL || '').trim();
-  if (!callUrl) {
+  if (method === 'meet') {
+    // Google Meet では CALL_URL は使わない
+  } else if (!callUrl) {
     warn('CALL_URL は未設定です（このままでも動きます）。面接の時刻には「トーク画面上の📞ボタンから発信してください」という案内を送ります。' +
       'LINEコールの通話用URLを入れると、案内が「📹 ビデオ通話する」ボタンになります');
   } else if (!/^https:\/\/\S+$/.test(callUrl)) {

@@ -100,6 +100,7 @@ test('通しの流れ：書類通過→候補送信→応募者が選択→面�
     pushMessage_ = function (id, m) { __sent.push(['push', m]); return {}; };
     replyMessage_ = function (t, m) { __sent.push(['reply', m]); return {}; };
     notifyAdmin_ = function () {};
+    interviewMethod_ = function () { return 'line'; };
     now_ = function () { return '2026/10/05 12:00:00'; };
     Utilities = { formatDate: function () { return '10/5 12:00'; } };
   `, Object.assign(ctx, { __db: db, __sent: sent }));
@@ -226,7 +227,8 @@ test('1分ごとの自動処理で、カレンダーに登録・移動・削除�
   let props = {};
   Object.assign(c, {
     __db: db, __header: header, __cal: calendar, __errors: errors,
-    PropertiesService: { getScriptProperties: () => ({ getProperties: () => props, getProperty: (k) => props[k] || null }) },
+    // この確認は LINEコール（Google Meet は下の別の確認）
+    PropertiesService: { getScriptProperties: () => ({ getProperties: () => Object.assign({ INTERVIEW_METHOD: 'line' }, props), getProperty: (k) => props[k] || null }) },
     CalendarApp: { getDefaultCalendar: () => calendar, getCalendarById: () => null },
     CacheService: { getScriptCache: () => ({ get: (k) => cacheStore[k] || null, put: (k, v) => { cacheStore[k] = v; } }) }
   });
@@ -309,4 +311,156 @@ test('面接の案内：ビデオ通話・20〜30分程度（ボタンの本文�
   assert.match(withUrl[0].template.text, /「ビデオ通話」で発信/);
   assert.ok(withUrl[0].template.text.length <= 160);
   assert.match(ctx.callMessages_(r, '')[0].text, /「ビデオ通話」で発信/);
+});
+
+test('Google Meet の文面：参加用ボタン（URLがなければ担当者から送ると伝える）', () => {
+  const r = rec({ interviewAt: '2026/10/12(月) 14:00', meetUrl: 'https://meet.google.com/abc-defg-hij' });
+  const texts = [ctx.callGuideText_('meet'), ctx.fixedText_(r, '2026/10/12(月) 14:00', 'meet'), ctx.reminderText_(r, 'meet'),
+    JSON.stringify(ctx.offerMessage_(r, ['2026/10/12(月) 14:00'], 'meet')), ctx.calendarDescription_(r, '', 'meet')];
+  texts.forEach((t) => {
+    assert.match(t, /Google Meet/);
+    assert.match(t, /20〜30分程度/);
+    assert.doesNotMatch(t, /LINEコール|発信/);
+  });
+  assert.match(ctx.callGuideText_('meet'), /Googleアカウントがなくても参加できます/);
+  assert.match(ctx.callGuideText_('meet'), /参加をリクエスト/);
+  assert.strictEqual(ctx.calendarTitle_(r, 'meet'), '面接（Google Meet）山田 花子 さん');
+  assert.match(ctx.calendarDescription_(r, '', 'meet'), /「承認」してください/);
+
+  const call = ctx.callMessages_(r, 'https://line.me/R/call/x', 'meet');
+  assert.strictEqual(call[0].template.actions[0].uri, 'https://meet.google.com/abc-defg-hij');
+  assert.strictEqual(call[0].template.actions[0].label, 'Google Meet に参加する');
+  assert.ok(call[0].template.text.length <= 160, call[0].template.text.length);
+  const noUrl = ctx.callMessages_(rec({}), '', 'meet');
+  assert.strictEqual(noUrl[0].type, 'text');
+  assert.match(noUrl[0].text, /参加用のURLを担当者から/);
+
+  const reminder = ctx.reminderMessages_(r, 'meet');
+  assert.strictEqual(reminder.length, 2);
+  assert.strictEqual(reminder[1].template.actions[0].uri, 'https://meet.google.com/abc-defg-hij');
+  assert.strictEqual(ctx.reminderMessages_(r, 'line').length, 1); // LINEコールではボタンなし
+});
+
+test('Google Meet：当日のリマインドはURLができてから、面接の時刻の案内はURLがなくても送る', () => {
+  const r = { status: S.INTERVIEW_FIXED, interviewAt: '2026/10/12(月) 14:00' };
+  assert.deepStrictEqual(actions(r, at(2026, 10, 12, 9, 0)), ['reminder']); // LINEコール（method なし）
+  assert.deepStrictEqual(Array.from(ctx.scheduledActions_(rec(r), at(2026, 10, 12, 9, 0), 'meet')), []);
+  const withUrl = Object.assign({ meetUrl: 'https://meet.google.com/x' }, r);
+  assert.deepStrictEqual(Array.from(ctx.scheduledActions_(rec(withUrl), at(2026, 10, 12, 9, 0), 'meet')), ['reminder']);
+  assert.deepStrictEqual(Array.from(ctx.scheduledActions_(rec(Object.assign({ reminderSentAt: 'x' }, r)), at(2026, 10, 12, 14, 0), 'meet')), ['call']);
+});
+
+test('1分ごとの自動処理で、カレンダーの予定に Google Meet を付ける', () => {
+  const c = vm.createContext({});
+  for (const f of ['Options.gs', 'Validation.gs', 'Line.gs', 'Sheet.gs', 'Interview.gs', 'Code.gs', 'Shift.gs']) {
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'gas', f), 'utf8'), c, { filename: f });
+  }
+  const header = c.COLUMNS[c.REG_SHEET].map((x) => x[1]);
+  const db = {};
+  const events = {};
+  let nextId = 1;
+  const errors = [];
+  const pushed = [];
+  const admin = [];
+  const cacheStore = {};
+  const makeEvent = (id) => ({
+    getId: () => id + '@google.com',
+    setTime: (s, e) => { events[id].start = s; events[id].end = e; },
+    setTitle: (t) => { events[id].title = t; },
+    setDescription: (t) => { events[id].description = t; },
+    addPopupReminder: () => {},
+    deleteEvent: () => { delete events[id]; }
+  });
+  const calendar = {
+    getId: () => 'me@example.com',
+    createEvent: (title) => { const id = 'E' + nextId++; events[id] = { title }; return makeEvent(id); },
+    getEventById: (id) => (events[id.split('@')[0]] ? makeEvent(id.split('@')[0]) : null)
+  };
+  // Calendar API（高度なサービス）：会議の作成を頼むと最初は pending、次に読むと URL ができている
+  const AdvancedCalendar = {
+    Events: {
+      get: (calId, id) => {
+        assert.strictEqual(calId, 'me@example.com');
+        const e = events[id];
+        if (e.conf === 'pending') { e.conf = 'ready'; return { conferenceData: { createRequest: { status: { statusCode: 'pending' } } } }; }
+        return e.conf === 'ready' ? { hangoutLink: 'https://meet.google.com/' + id } : {};
+      },
+      patch: (body, calId, id, opt) => {
+        assert.strictEqual(opt.conferenceDataVersion, 1);
+        assert.strictEqual(body.conferenceData.createRequest.conferenceSolutionKey.type, 'hangoutsMeet');
+        events[id].conf = 'pending';
+        events[id].patches = (events[id].patches || 0) + 1;
+        return {};
+      }
+    }
+  };
+  Object.assign(c, {
+    __db: db, __header: header, __errors: errors, __pushed: pushed, __admin: admin,
+    PropertiesService: { getScriptProperties: () => ({ getProperties: () => ({}), getProperty: () => null }) },
+    CalendarApp: { getDefaultCalendar: () => calendar },
+    CacheService: { getScriptCache: () => ({ get: (k) => cacheStore[k] || null, put: (k, v) => { cacheStore[k] = v; } }) },
+    Utilities: { getUuid: () => 'uuid', formatDate: () => '' }
+  });
+  vm.runInContext(`
+    sheet_ = function () {
+      var ids = Object.keys(__db);
+      var rows = [__header].concat(ids.map(function (id) { return __header.map(function (h, i) {
+        var key = COLUMNS[REG_SHEET][i][0]; return __db[id][key] === undefined ? '' : __db[id][key]; }); }));
+      return { getLastRow: function () { return rows.length; }, getLastColumn: function () { return __header.length; },
+        getRange: function (r, col, nr, nc) { return { getValues: function () {
+          return rows.slice(r - 1, r - 1 + nr).map(function (row) { return row.slice(col - 1, col - 1 + nc); }); } }; } };
+    };
+    writeRecord_ = function (sheet, id, f) { __db[id] = Object.assign(__db[id] || {}, f); };
+    spreadsheet_ = function () { return { getUrl: function () { return 'https://sheet'; } }; };
+    pushMessage_ = function (id, m) { __pushed.push(m); return {}; };
+    notifyAdmin_ = function (s) { __admin.push(s); };
+    now_ = function () { return 'now'; };
+    logError_ = function (kind, id, err) { __errors.push(kind + ' ' + err.message); };
+    runJobScheduler_ = function () {};
+    sendChatReminders_ = function () { return 0; };
+  `, c);
+
+  // Calendar API が追加されていない → エラーを記録し、10分は同じエラーを出さない
+  db.U1 = rec({ status: S.INTERVIEW_FIXED, interviewAt: '2099/01/11(日) 10:00' });
+  c.runScheduler();
+  c.runScheduler();
+  assert.strictEqual(errors.length, 1);
+  assert.match(errors[0], /Google Calendar API（高度なサービス）が追加されていません/);
+  assert.strictEqual(db.U1.calendarEventId, 'E1@google.com');
+  assert.strictEqual(events.E1.title, '面接（Google Meet）山田 花子 さん');
+
+  // 追加したら：会議を頼む（pending）→ 次の回に URL を書く。頼むのは1回だけ
+  c.Calendar = AdvancedCalendar;
+  delete cacheStore['meet:U1'];
+  c.runScheduler(); // 会議を頼む
+  assert.strictEqual(db.U1.meetUrl || '', '');
+  c.runScheduler(); // まだ作成中（頼み直さない）
+  assert.strictEqual(db.U1.meetUrl || '', '');
+  assert.strictEqual(events.E1.patches, 1);
+  c.runScheduler(); // できた
+  assert.strictEqual(db.U1.meetUrl, 'https://meet.google.com/E1');
+  c.runScheduler();
+  assert.strictEqual(events.E1.patches, 1);
+
+  // 日程再調整で予定を消したら URL も消す
+  db.U1.status = S.RESCHEDULE;
+  c.runScheduler();
+  assert.strictEqual(db.U1.meetUrl, '');
+  assert.deepStrictEqual(Object.keys(events), []);
+
+  // 面接の時刻：URLがあれば参加ボタン。URLがなければ待ってもらう連絡＋担当者にメール
+  db.U2 = rec({ userId: 'U2', status: S.INTERVIEW_FIXED, interviewAt: '2000/01/01 10:00', reminderSentAt: 'x',
+    calendarEventId: 'gone', calendarAt: '2000/01/01(土) 10:00', meetUrl: 'https://meet.google.com/u2' });
+  const realNow = Date;
+  c.Date = class extends realNow { constructor(...a) { super(...(a.length ? a : [2000, 0, 1, 10, 5])); } };
+  delete db.U1;
+  c.runScheduler();
+  assert.strictEqual(pushed.length, 1);
+  assert.strictEqual(pushed[0][0].template.actions[0].uri, 'https://meet.google.com/u2');
+  db.U2.callSentAt = '';
+  db.U2.meetUrl = '';
+  cacheStore['meet:U2'] = '1';
+  c.runScheduler();
+  assert.match(pushed[1][0].text, /参加用のURLを担当者から/);
+  assert.strictEqual(admin.length, 1);
 });
