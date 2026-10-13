@@ -143,6 +143,7 @@ function render() {
       '<div class="row">' + select(ci, 'payBasis', '支払い方（売上の計算用）', PAY_BASIS) + field(ci, 'unitPrice', '単価（円）', '', 'number') + field(ci, 'minHours', '保証時間', '', 'number') +
         field(ci, 'transport', '交通費（円/人）', '', 'number') + field(ci, 'transportNote', '交通費の区間など', 'w2') +
         field(ci, 'mealFee', '食費（円/人）', '', 'number') + field(ci, 'mealNote', '食事（金額以外）') + '</div>' +
+      '<div class="row">' + field(ci, 'staffPay', 'スタッフ向け給与（LINEで案内する金額。例：時給1,180円）', 'w2') + '<div class="w3 hint" style="align-self:flex-end">依頼文の単価は請求額です。スタッフに払う金額をここに入れてください（あとで配信画面でも入れられます）。交通費は全額支給で案内します。</div></div>' +
       '<table><thead><tr><th style="width:130px">日程</th><th style="width:32px">祝</th><th style="width:90px">開始</th><th style="width:90px">終了</th><th style="width:70px">休憩(h)</th><th style="width:60px">人数</th><th>メモ</th><th style="width:60px"></th></tr></thead>' +
       '<tbody>' + shifts + '</tbody></table>' +
       '<div style="margin-top:6px"><button class="small" data-add-shift="' + ci + '">＋ 日程を追加</button></div>' +

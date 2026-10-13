@@ -50,6 +50,9 @@ var PAY_BASIS = ['拘束時間', '実働時間', '日給', '記載なし']; // �
 var UNITS = ['時給', '日給'];
 var GENDER_REQ = ['男女可', '男性のみ', '女性のみ', '記載なし'];
 
+/** スタッフに案内する交通費（全額支給で統一） */
+var STAFF_TRANSPORT = '全額支給';
+
 /** 1つのバブルに並べる応募ボタンの数（多い日程は次のバブルに分ける） */
 var SLOTS_PER_BUBBLE = 8;
 var MAX_BUBBLES = 12;          // カルーセル1つあたり（LINE の上限）
@@ -270,6 +273,7 @@ function normalizeCase_(c) {
     mealFee: isNum_(c.meal_fee) ? c.meal_fee : null,
     mealNote: str_(c.meal_note),
     notes: str_(c.notes),
+    staffPay: '', // スタッフ向け給与（確認画面で入れる）
     shifts: shifts
   };
 }
@@ -346,8 +350,8 @@ function jobRows_(cases, opts) {
         contactPhone: str_(c.contactPhone),
         notes: [c.notes, s.note, isNum_(toNum_(c.minHours)) ? toNum_(c.minHours) + '時間保証' : '',
           c.transportNote ? '交通費：' + c.transportNote : ''].filter(Boolean).join('／'),
-        staffPay: '',
-        staffTransport: toNum_(c.transport) !== null ? yen_(toNum_(c.transport)) + (c.transportNote ? '（' + c.transportNote + '）' : '') : '',
+        staffPay: str_(c.staffPay),
+        staffTransport: STAFF_TRANSPORT,
         recruit: RECRUIT.OPEN,
         applied: 0,
         prefecture: c.prefecture,
@@ -483,8 +487,6 @@ function jobBubbles_(rows) {
   if (first.meetingTime || first.meetingPlace) info.push(infoLine_('集合', [first.meetingTime, first.meetingPlace].filter(Boolean).join('\n')));
   if (first.dress) info.push(infoLine_('服装', first.dress));
   if (first.belongings) info.push(infoLine_('持ち物', first.belongings));
-  if (first.staffPay) info.push(infoLine_('給与', first.staffPay));
-  if (first.staffTransport) info.push(infoLine_('交通費', first.staffTransport));
   if (meal && meal !== 'なし') info.push(infoLine_('食事', meal));
 
   var bubbles = [];
@@ -503,6 +505,9 @@ function jobBubbles_(rows) {
         contents: [
           { type: 'text', text: 'お仕事のご案内', size: 'xs', color: BRAND_BROWN, weight: 'bold' },
           { type: 'text', text: (first.title || 'お仕事') + (i > 0 ? '（つづき）' : ''), weight: 'bold', size: 'md', wrap: true },
+          // 給与と交通費は目立つように、タイトルのすぐ下に出す
+          { type: 'text', text: '💴 ' + (str_(first.staffPay) || '給与はお問い合わせください') + '\n🚃 交通費' + STAFF_TRANSPORT,
+            weight: 'bold', size: 'sm', color: BRAND_BROWN, wrap: true },
           // LINE は中身が空の box や text を受け付けないので、項目がなければ入れない
           info.length ? { type: 'box', layout: 'vertical', spacing: 'xs', contents: info } : null,
           { type: 'text', text: '働ける日時のボタンを押すと応募できます（複数可）。', size: 'xxs', color: '#888888', wrap: true }
@@ -925,5 +930,41 @@ function endReportTarget_(apps, userId, now) {
     }
   });
   return best;
+}
+
+// ---- 同じ人が同じ日に二重に確定しないように ----
+
+/**
+ * 「確定」にした行のうち、同じ人がすでに同じ日に確定しているものを探す（その行は確定にできない）。
+ * 一度に複数の行を確定にしたときは、上の行を優先する。
+ * @param {Array} apps 「案件応募」の全行（_row 付き。今回の編集を反映したもの）
+ * @param {number[]} editedRows 今回「状態」を変えた行（シートの行番号）
+ * @return {Array<{row: number, other: Object}>} 確定にできない行と、先に確定していた行
+ */
+function confirmConflicts_(apps, editedRows) {
+  var edited = {};
+  editedRows.forEach(function (r) { edited[r] = true; });
+  var day = function (a) { var d = parseYmd_(a.date); return d ? ymd_(d) : str_(a.date); };
+  var confirmed = apps.filter(function (a) { return a.status === APPLY_STATUS.CONFIRMED && a.userId; });
+  var reverted = {};
+  var out = [];
+  editedRows.slice().sort(function (a, b) { return a - b; }).forEach(function (row) {
+    var app = confirmed.filter(function (a) { return a._row === row; })[0];
+    if (!app) return;
+    var other = confirmed.filter(function (a) {
+      if (a._row === row || reverted[a._row] || a.userId !== app.userId || day(a) !== day(app)) return false;
+      // 今回いっしょに確定にした行は、上の行だけを先に確定したものとみなす
+      return !edited[a._row] || a._row < row;
+    })[0];
+    if (other) {
+      reverted[row] = true;
+      out.push({ row: row, other: other });
+    }
+  });
+  return out;
+}
+
+function confirmConflictMemo_(other) {
+  return '同じ日（' + other.date + '）に「' + other.title + '」（' + appTimeText_(other) + '）で確定しているため、確定にできませんでした';
 }
 

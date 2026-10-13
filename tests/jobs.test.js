@@ -62,7 +62,9 @@ test('1日1行にして、曜日・時間・金額・計上月を計算する', 
   assert.strictEqual(r.belongings, '筆記用具、メモ、腕時計');
   assert.strictEqual(r.contactName, '');
   assert.strictEqual(r.contactPhone, '');
-  assert.strictEqual(r.staffTransport, '¥660（阪神大阪梅田〜阪神元町 往復）');
+  assert.strictEqual(r.staffTransport, '全額支給'); // スタッフへの案内は全額支給で統一
+  assert.strictEqual(r.staffPay, '');
+  assert.match(r.notes, /交通費：阪神大阪梅田〜阪神元町 往復/); // 区間は備考に残る
   assert.strictEqual(r.recruit, '募集中');
   assert.strictEqual(r.work, 'イベント運営（受付・誘導・準備片付け）');
   assert.strictEqual(r.role, 'ST');
@@ -906,4 +908,64 @@ test('Gemini がすべて混み合っていても、Claude の APIキーがあ�
   // APIキーの誤りなど、混雑以外のエラーでは Claude に切り替えない
   const bad = geminiCtx(() => [400, { error: { code: 400, message: 'API key not valid.' } }], { ANTHROPIC_API_KEY: 'sk-test' });
   assert.throws(() => bad.c.parseJobText('x'), /GEMINI_API_KEY/);
+});
+
+test('配信のカード：スタッフ向け給与と「交通費全額支給」をタイトルの下に出す', () => {
+  const rows = rowsOf([kobe]).map((r) => Object.assign(r, { staffPay: '時給1,180円' }));
+  const text = JSON.stringify(plain(ctx.jobMessages_([rows])));
+  assert.match(text, /💴 時給1,180円\\n🚃 交通費全額支給/);
+  assert.doesNotMatch(text, /¥660/);
+  const imported = plain(ctx.jobRows_([Object.assign(ctx.normalizeCase_(kobe), { staffPay: '時給1,180円' })], { client: 'A', importId: 'X', paymentMonthsAfter: 1 }));
+  assert.strictEqual(imported[0].staffPay, '時給1,180円');
+});
+
+test('同じ人が同じ日に二重に確定しないように', () => {
+  const a = (row, o) => Object.assign({ _row: row, userId: 'U1', status: '確定', date: '2026/10/21', title: 'パン祭り', start: '09:00', end: '17:00' }, o);
+  // すでに確定している日に、別の案件を確定にした → その行は確定にできない
+  const apps = [a(2), a(3, { title: '子供向けイベント', start: '13:00', end: '18:00' }), a(4, { date: '2026/10/22' }), a(5, { userId: 'U2' })];
+  const c1 = plain(ctx.confirmConflicts_(apps, [3]));
+  assert.deepStrictEqual(c1.map((x) => [x.row, x.other._row]), [[3, 2]]);
+  assert.match(ctx.confirmConflictMemo_(apps[0]), /同じ日（2026\/10\/21）に「パン祭り」（9:00〜17:00）で確定しているため、確定にできませんでした/);
+  // 別の日・別の人は問題なし
+  assert.deepStrictEqual(plain(ctx.confirmConflicts_(apps, [4, 5])), []);
+  // 一度に2行を確定にした → 上の行を優先
+  const both = [a(2, { status: '応募' }), a(6), a(7, { title: '子供向けイベント' })];
+  assert.deepStrictEqual(plain(ctx.confirmConflicts_(both, [6, 7])).map((x) => [x.row, x.other._row]), [[7, 6]]);
+  // 3行同時：上の1行だけ確定、残りは取り消し
+  const three = [a(2), a(3), a(4)];
+  assert.deepStrictEqual(plain(ctx.confirmConflicts_(three, [2, 3, 4])).map((x) => x.row), [3, 4]);
+  // 見送り・辞退の行は数えない
+  assert.deepStrictEqual(plain(ctx.confirmConflicts_([a(2, { status: '辞退' }), a(3)], [3])), []);
+});
+
+test('「案件応募」で二重に確定にすると、元に戻して管理メモに残し、確定の連絡は送らない', () => {
+  const rows = [
+    { userId: 'U1', name: '山田 花子', status: '確定', date: '2026/10/21', title: 'パン祭り', start: '09:00', end: '17:00', notifiedAt: 'x' },
+    { userId: 'U1', name: '山田 花子', status: '確定', date: '2026/10/21', title: '子供向けイベント', start: '13:00', end: '18:00' },
+    { userId: 'U2', name: '佐藤 太郎', status: '確定', date: '2026/10/21', title: '子供向けイベント', start: '13:00', end: '18:00' }
+  ];
+  const { c, pushes } = applyFlowCtx(rows);
+  const toasts = [];
+  const header = plain(c.COLUMNS[c.APPLY_SHEET].map((x) => x[1]));
+  const sheet = {
+    getLastColumn: () => header.length,
+    getRange: (r, col, nr) => ({ getValues: () => rows.slice(r - 2, r - 2 + nr).map((rec) => c.COLUMNS[c.APPLY_SHEET].map((x) => rec[x[0]] === undefined ? '' : rec[x[0]])) })
+  };
+  vm.runInContext("headerMap_ = function () { var m = {}; COLUMNS[APPLY_SHEET].forEach(function (x, i) { m[x[1]] = i; }); return m; };" +
+    "Utilities.formatDate = function () { return '10/20 12:00'; };", c);
+  const ev = (row, oldValue) => ({
+    range: { getSheet: () => sheet, getColumn: () => 2, getLastColumn: () => 2, getRow: () => row, getLastRow: () => row },
+    oldValue, source: { toast: (m, t) => toasts.push([t, m]) }
+  });
+  c.onApplyEdit_(ev(3, '応募'));
+  assert.strictEqual(rows[1].status, '応募');
+  assert.match(rows[1].adminMemo, /確定にできませんでした/);
+  assert.strictEqual(pushes.length, 0);
+  assert.strictEqual(toasts[0][0], '確定できません');
+  assert.match(toasts[0][1], /山田 花子 さんは 同じ日（2026\/10\/21）に「パン祭り」/);
+  // 別の人は普通に確定できて、連絡も届く
+  c.onApplyEdit_(ev(4, '応募'));
+  assert.strictEqual(rows[2].status, '確定');
+  assert.strictEqual(pushes.length, 1);
+  assert.strictEqual(pushes[0][0], 'U2');
 });

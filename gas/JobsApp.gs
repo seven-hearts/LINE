@@ -536,11 +536,13 @@ function jobSend(req) {
   readAll_(JOB_SHEET).forEach(function (x) {
     var e = edits[x.rec.caseId];
     if (!e) return;
-    if (str_(e.staffPay) !== str_(x.rec.staffPay) || str_(e.staffTransport) !== str_(x.rec.staffTransport)) {
-      updateCells_(JOB_SHEET, x.row, { staffPay: str_(e.staffPay), staffTransport: str_(e.staffTransport) });
+    if (str_(e.staffPay) !== str_(x.rec.staffPay) || str_(x.rec.staffTransport) !== STAFF_TRANSPORT) {
+      updateCells_(JOB_SHEET, x.row, { staffPay: str_(e.staffPay), staffTransport: STAFF_TRANSPORT });
     }
   });
   var groups = selectedGroups_(req.caseIds || []);
+  var noPay = groups.filter(function (rows) { return !str_(rows[0].staffPay); });
+  if (noPay.length) throw new Error('スタッフ向け給与を入れてください：' + noPay.map(function (rows) { return rows[0].title; }).join('、'));
   var buckets = jobBuckets_(staffRecords_(), groups, req);
   if (!buckets.length) throw new Error('送信先のスタッフがいません。条件を変えてください');
 
@@ -619,7 +621,24 @@ function onApplyEdit_(e) {
   if (lastRow < firstRow) return;
   var rows = sh.getRange(firstRow, 1, lastRow - firstRow + 1, sh.getLastColumn()).getValues();
 
+  // 同じ人が同じ日にすでに確定していたら、確定を取り消して元に戻す（確定の連絡も送らない）
+  var editedRows = rows.map(function (v, k) { return firstRow + k; });
+  var blocked = {};
+  var all = readAll_(APPLY_SHEET).map(function (x) { x.rec._row = x.row; return x.rec; });
+  confirmConflicts_(all, editedRows).forEach(function (c) {
+    var app = all.filter(function (a) { return a._row === c.row; })[0];
+    var back = editedRows.length === 1 && e.oldValue && e.oldValue !== APPLY_STATUS.CONFIRMED ? e.oldValue : APPLY_STATUS.APPLIED;
+    updateCells_(APPLY_SHEET, c.row, { status: back, adminMemo: appendMemo_(app.adminMemo, confirmConflictMemo_(c.other)) });
+    blocked[c.row] = true;
+    try {
+      e.source.toast(app.name + ' さんは ' + confirmConflictMemo_(c.other) + '。', '確定できません', 15);
+    } catch (err) {
+      // 通知が出せなくても、管理メモには残る
+    }
+  });
+
   rows.forEach(function (values, k) {
+    if (blocked[firstRow + k]) return;
     var app = rowToRecord_(APPLY_SHEET, header, values);
     if (!app.userId || app.notifiedAt) return;
     if (app.status !== APPLY_STATUS.CONFIRMED && app.status !== APPLY_STATUS.DECLINED) return;

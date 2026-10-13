@@ -33,7 +33,7 @@
 </head>
 <body>
   <div class="hint">送りたい案件にチェックを入れてください（シートで行を選んでから開くと、その案件にチェックが入ります）。
-「給与」は依頼文の単価（請求額）ではなく、スタッフに支払う金額を入れてください。空欄なら表示しません。</div>
+「スタッフ向け給与」には、依頼文の単価（請求額）ではなく、スタッフに支払う金額を入れてください。交通費は「全額支給」で案内します。</div>
   <div id="msg" class="msg"></div>
   <h2>案件</h2>
   <div id="groups">読み込み中…</div>
@@ -76,8 +76,8 @@ google.script.run.withSuccessHandler(function (r) {
       (g.sentAt ? '<span class="sent">配信済み（' + esc(g.sentAt) + '）</span>' : '') + '</div>' +
       '<div class="meta">' + esc([g.client, g.area && ('エリア：' + g.area), g.genderReq !== '記載なし' && g.genderReq !== '男女可' ? g.genderReq : '', g.conditions].filter(Boolean).join('／')) + '</div>' +
       '<div class="slots">' + slots + '</div>' +
-      '<div class="edit"><div><label class="l">給与（スタッフ向け）</label><input type="text" data-pay="' + i + '" value="' + esc(g.staffPay) + '" placeholder="例：時給1,200円"></div>' +
-      '<div><label class="l">交通費（スタッフ向け）</label><input type="text" data-tr="' + i + '" value="' + esc(g.staffTransport) + '" placeholder="例：¥660（往復）"></div></div>' +
+      '<div class="edit"><div><label class="l">スタッフ向け給与（必須）</label><input type="text" data-pay="' + i + '" value="' + esc(g.staffPay) + '" placeholder="例：時給1,200円"></div>' +
+      '<div><label class="l">交通費</label><div style="padding:6px 0">全額支給</div></div></div>' +
       '</div>';
   }).join('');
 }).withFailureHandler(function (e) { showMsg(e.message); }).jobSendInit();
@@ -101,8 +101,7 @@ function request() {
   data.groups.forEach(function (g, i) {
     if (document.querySelector('input[data-i="' + i + '"]').checked) caseIds.push(g.caseId);
     edits[g.caseId] = {
-      staffPay: document.querySelector('input[data-pay="' + i + '"]').value,
-      staffTransport: document.querySelector('input[data-tr="' + i + '"]').value
+      staffPay: document.querySelector('input[data-pay="' + i + '"]').value.trim()
     };
   });
   return {
@@ -116,6 +115,8 @@ $('check').onclick = function () {
   if (!data) return;
   var req = request();
   if (!req.caseIds.length) return showMsg('配信する案件にチェックを入れてください');
+  var noPay = data.groups.filter(function (g) { return req.caseIds.indexOf(g.caseId) >= 0 && !req.edits[g.caseId].staffPay; });
+  if (noPay.length) return showMsg('スタッフ向け給与を入れてください：' + noPay.map(function (g) { return g.title; }).join('、'));
   if (!req.statuses.length) return showMsg('対象のステータスを1つ以上選んでください');
   $('msg').className = 'msg';
   $('check').disabled = true;
