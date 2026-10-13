@@ -691,7 +691,7 @@ function driveImageUrl_(id) {
 /** 詳細連絡で送るメッセージ：本文 → 画像（最大3枚）→ 交通費・出発時間の返信のお願い */
 function detailMessages_(f, slots) {
   var images = (f.images || []).slice(0, DETAIL_MAX_IMAGES).map(function (id) {
-    return { type: 'image', originalContentUrl: driveImageUrl_(id), previewContentUrl: driveImageUrl_(id) };
+    return { type: 'image', originalContentUrl: driveImageUrl_(id), previewImageUrl: driveImageUrl_(id) };
   });
   return [{ type: 'text', text: detailText_(f, slots) }].concat(images, [{ type: 'text', text: travelRequestText_(str_(f.title)) }]);
 }

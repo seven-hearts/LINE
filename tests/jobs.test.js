@@ -537,7 +537,7 @@ test('詳細連絡のメッセージ：本文 → 画像（3枚まで）→ 返�
   assert.deepStrictEqual(msgs.map((m) => m.type), ['text', 'image', 'image', 'image', 'text']);
   assert.ok(msgs.length <= 5);
   assert.match(msgs[0].text, /^ロハスミーツ高槻の詳細です。/);
-  assert.deepStrictEqual(msgs[1], { type: 'image', originalContentUrl: 'https://lh3.googleusercontent.com/d/img1', previewContentUrl: 'https://lh3.googleusercontent.com/d/img1' });
+  assert.deepStrictEqual(msgs[1], { type: 'image', originalContentUrl: 'https://lh3.googleusercontent.com/d/img1', previewImageUrl: 'https://lh3.googleusercontent.com/d/img1' });
   assert.match(msgs[4].text, /^【ご返信のお願い】/);
   assert.deepStrictEqual(plain(ctx.detailMessages_(Object.assign({}, f, { images: [] }), lohas)).map((m) => m.type), ['text', 'text']);
 });
@@ -850,4 +850,6 @@ test('LINE の送信エラーの理由を日本語で示す', () => {
   assert.match(e(400, { message: 'Failed to send messages' }), /LINE が受け付けませんでした（400：Failed to send messages）/);
   assert.doesNotMatch(e(400, { message: 'x', details: [{ message: 'size must be up to 5', property: 'messages' }] }), /ユーザーID/);
   assert.match(ctx.lineErrorText_(500, 'oops'), /500：oops/);
+  // 実際に起きたエラー（画像のプレビューの項目名の誤り）
+  assert.match(e(400, { message: 'The request body has 1 error(s)', details: [{ message: 'May not be empty', property: 'messages[1].previewImageUrl' }] }), /画像を送れませんでした/);
 });

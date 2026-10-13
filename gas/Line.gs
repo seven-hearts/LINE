@@ -19,7 +19,7 @@ function lineErrorText_(code, text) {
   }
   if (code === 429) return 'LINE が混み合っています。少し待ってから送り直してください';
   if (code === 401) return 'チャネルアクセストークンが無効です（checkSettings を実行して確認してください）';
-  if (code === 400 && /ContentUrl/i.test(all)) return '画像を送れませんでした（' + details + '）。画像を外して送るか、選び直してください';
+  if (code === 400 && /ContentUrl|ImageUrl/i.test(all)) return '画像を送れませんでした（' + details + '）。画像を外して送るか、選び直してください';
   var badTo = (body.details || []).some(function (d) { return d.property === 'to'; }) || /property, 'to'/.test(msg);
   if (code === 400 && badTo) return 'このスタッフの LINE ユーザーIDが正しくありません（' + all.trim() + '）';
   if (code === 400 && /text/i.test(details) && /5000|length|size/i.test(details)) return '文章が長すぎます（' + details + '）';
