@@ -3,6 +3,10 @@
   "private": true,
   "scripts": {
     "test": "node --test tests/*.test.js",
-    "build:options": "node scripts/build-options.js"
+    "build:options": "node scripts/build-options.js",
+    "build:manual": "node scripts/build-manual.js"
+  },
+  "devDependencies": {
+    "sharp": "^0.35.5"
   }
 }

@@ -5,12 +5,15 @@
  * - LIFF フォームからの登録内容の変更・書類提出 API
  * - スプレッドシートでステータスを「採用」にすると書類提出の案内を自動送信
  * - 毎月25日に「稼働可」のスタッフへ翌月のシフト提出フォームを送り、勤務エリアごとに集計（Shift.gs）
+ * - スタッフマニュアル（マンガ）の閲覧数の記録・集計（Manual.gs）と、スタッフ用リッチメニュー（RichMenu.gs）
  *
  * 設定値はすべて「プロジェクトの設定 > スクリプト プロパティ」に保存します（README参照）。
  */
 
 /** 個人情報の取り扱いページ（liff/privacy.html）。別のページを使う場合はスクリプト プロパティ PRIVACY_POLICY_URL で上書き */
 var DEFAULT_PRIVACY_POLICY_URL = 'https://seven-hearts.github.io/LINE/liff/privacy.html';
+/** スタッフマニュアル（liff/manual/）。別の場所で公開する場合はスクリプト プロパティ MANUAL_URL で上書き */
+var DEFAULT_MANUAL_URL = 'https://seven-hearts.github.io/LINE/liff/manual/';
 
 /** 案件の読み取りに使う Claude のモデル。スクリプト プロパティ CLAUDE_MODEL で変更できる */
 var DEFAULT_CLAUDE_MODEL = 'claude-opus-5-5';
@@ -30,6 +33,7 @@ function getConfig_() {
     driveFolderId: p.DRIVE_FOLDER_ID,
     adminEmail: p.ADMIN_EMAIL || '',
     privacyPolicyUrl: p.PRIVACY_POLICY_URL || DEFAULT_PRIVACY_POLICY_URL,
+    manualUrl: (p.MANUAL_URL || '').trim() || DEFAULT_MANUAL_URL,
     callUrl: (p.CALL_URL || '').trim(),
     // 面接の方法：meet（Google Meet。初期値）/ line（LINEコール）
     interviewMethod: (p.INTERVIEW_METHOD || '').trim().toLowerCase() === 'line' ? 'line' : 'meet',
@@ -94,7 +98,7 @@ function doPost(e) {
  * コードの版。コードを変えるたびに更新する。
  * checkSettings がウェブアプリ（デプロイ済み）の版と比べて、デプロイし忘れを見つける。
  */
-var APP_VERSION = '2026-10-13.13';
+var APP_VERSION = '2026-10-14.1';
 
 function doGet() {
   return json_({ ok: true, service: 'sevenhearts-staff-registration', version: APP_VERSION });
@@ -133,6 +137,8 @@ function setup() {
   ensureSheet_(ss, CHAT_SHEET);
   ensureSheet_(ss, SHIFT_SHEET);
   ensureSheet_(ss, LOG_SHEET);
+  ensureSheet_(ss, MANUAL_LOG_SHEET);
+  ensureRichMenuSheet_(ss);
   setupJobSheets_(ss);
 
   var statusCol = headerMap_(reg)['ステータス'] + 1;
@@ -165,6 +171,10 @@ function setup() {
   if (handlers.indexOf('onStatusEdit') < 0) ScriptApp.newTrigger('onStatusEdit').forSpreadsheet(ss).onEdit().create();
   // リマインド・通話ボタン・不採用通知・シフト提出の案内を時刻どおりに送るため、1分ごとに確認する
   if (handlers.indexOf('runScheduler') < 0) ScriptApp.newTrigger('runScheduler').timeBased().everyMinutes(1).create();
+  // マニュアルの閲覧数の集計を毎朝作り直す
+  if (handlers.indexOf('updateManualSummary') < 0) {
+    ScriptApp.newTrigger('updateManualSummary').timeBased().everyDays(1).atHour(MANUAL_SUMMARY_HOUR).create();
+  }
 
   // カレンダーの権限をここで許可してもらう（許可がないと、1分ごとの自動処理でカレンダーに登録できない）
   if (getConfig_().calendarId.toLowerCase() !== 'off') interviewCalendar_();
@@ -180,6 +190,7 @@ function setup() {
  * - 書類落選 → すぐに不採用通知を送る
  * - 不採用 → 変更時刻を記録（通知は runScheduler が翌日の午前10時に送る）
  * - 採用 → 書類提出の案内を送って「書類依頼済」に
+ * - スタッフ用リッチメニューを作ってあれば、「採用」〜「稼働可」の人に付け、それ以外になった人から外す
  * シート「案件応募」の「状態」を変えたときは onApplyEdit_（JobsApp.gs）で確定・見送りの連絡を送る。
  */
 function onStatusEdit(e) {
@@ -221,6 +232,7 @@ function onStatusEdit(e) {
           if (sent) setStatus_(rec.userId, STATUS.DOC_REQUESTED);
           break;
       }
+      syncStaffRichMenu_(rec);
     } catch (err) {
       console.error('onStatusEdit failed', rec.userId, err && err.stack || err);
       logError_('ステータス変更：' + rec.status, rec.userId, err);
