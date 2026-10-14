@@ -24,9 +24,9 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -39,7 +39,7 @@ jobs:
 
       - name: 変換した画像を追加する
         run: |
-          git add liff/manual/pages liff/manual/manual.json
+          git add -A liff/manual
           if git diff --cached --quiet; then
             echo "変わった画像はありません"
             exit 0
