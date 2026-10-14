@@ -13,6 +13,9 @@ var LOG_MAX_ROWS = 1000;
 var JOB_SHEET = '案件一覧';   // お客様からの案件（Jobs.gs）
 var APPLY_SHEET = '案件応募'; // LINE で配信した案件への応募
 var IMPORT_SHEET = '案件取込履歴';
+var MANUAL_LOG_SHEET = 'マニュアル閲覧';     // スタッフマニュアルを開いた・章を読み終えた記録（Manual.gs）
+var MANUAL_SUMMARY_SHEET = 'マニュアル集計'; // 閲覧数のまとめ（毎朝とメニューから作り直す）
+var RICHMENU_SHEET = 'リッチメニュー設定';    // スタッフ用リッチメニューの画像とボタン（RichMenu.gs）
 
 var STATUS = {
   PRE: '仮登録',                    // フォーム送信済み。書類選考待ち
@@ -220,6 +223,19 @@ COLUMNS[APPLY_SHEET] = [
   ['endReport', '終了報告（返信内容）'],
   ['endReportAt', '終了報告の日時'],
   ['adminMemo', '管理メモ']
+];
+
+COLUMNS[MANUAL_LOG_SHEET] = [
+  ['at', '日時'],
+  ['date', '日付'],
+  ['visitor', '閲覧者ID'],      // 端末ごとの記号（LINE で開かなかった人も数えるため）
+  ['userId', 'LINEユーザーID'],  // スタッフ用リッチメニュー（LIFF）から開いたときだけ入る
+  ['name', '氏名'],
+  ['event', '操作'],            // 開いた / 章を読み終えた
+  ['chapter', '章'],
+  ['title', '章の名前'],
+  ['total', '全体の章の数'],
+  ['from', '開いた場所']
 ];
 
 COLUMNS[IMPORT_SHEET] = [

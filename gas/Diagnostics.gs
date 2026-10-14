@@ -66,7 +66,7 @@ function checkSettings() {
   // 4. シート・トリガー
   try {
     var ss = SpreadsheetApp.openById(props.SPREADSHEET_ID);
-    [REG_SHEET, ONB_SHEET, CHAT_SHEET, JOB_SHEET, APPLY_SHEET, IMPORT_SHEET, SHIFT_SHEET].forEach(function (name) {
+    [REG_SHEET, ONB_SHEET, CHAT_SHEET, JOB_SHEET, APPLY_SHEET, IMPORT_SHEET, SHIFT_SHEET, MANUAL_LOG_SHEET].forEach(function (name) {
       var sh = ss.getSheetByName(name);
       if (!sh) return ng('シート「' + name + '」がありません。setup を実行してください');
       var header = headerMap_(sh);
@@ -83,6 +83,22 @@ function checkSettings() {
   var hasScheduler = ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === 'runScheduler'; });
   if (hasScheduler) ok('リマインド・通話ボタン・不採用通知・シフト提出の案内の自動送信トリガー（1分ごと）があります');
   else ng('リマインド・通話ボタン・不採用通知・シフト提出の案内の自動送信トリガーがありません。setup を実行してください');
+  var hasManualSummary = ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === 'updateManualSummary'; });
+  if (hasManualSummary) ok('マニュアルの閲覧数を毎朝' + MANUAL_SUMMARY_HOUR + '時に集計するトリガーがあります');
+  else ng('マニュアルの閲覧数を集計するトリガーがありません。setup を実行してください');
+
+  // スタッフ用リッチメニュー
+  var richMenuId = (props[RICHMENU_PROPERTY] || '').trim();
+  if (!richMenuId) {
+    warn('スタッフ用リッチメニューはまだ作っていません（使う場合は、シート「' + RICHMENU_SHEET + '」に画像とボタンを入れて、メニュー「セブンハーツ > スタッフ用リッチメニューを作成・更新」）');
+  } else if (token) {
+    var rm = UrlFetchApp.fetch(LINE_BOT_API + '/richmenu/' + encodeURIComponent(richMenuId), {
+      headers: { Authorization: 'Bearer ' + token }, muteHttpExceptions: true
+    });
+    if (rm.getResponseCode() === 200) ok('スタッフ用リッチメニューがあります（' + JSON.parse(rm.getContentText()).areas.length + 'ボタン）');
+    else ng('スタッフ用リッチメニューが LINE で見つかりません（' + rm.getResponseCode() + '）。メニュー「セブンハーツ > スタッフ用リッチメニューを作成・更新」で作り直してください');
+  }
+
   var calId = (props.CALENDAR_ID || '').trim();
   if (calId.toLowerCase() === 'off') {
     warn('CALENDAR_ID が off のため、面接日時を Google カレンダーに登録しません');

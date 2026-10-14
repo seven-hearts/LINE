@@ -23,6 +23,8 @@ function handleApi_(body) {
   try {
     // 郵便番号検索は個人情報を扱わないため、ログイン確認なしで受け付ける（フォームの読み込み前でも使えるように）
     if (body.action === 'zip') return apiZip_((body.data || {}).zip);
+    // マニュアルの閲覧の記録は、LINE の外で開いた人の分も受け付ける（IDトークンがあれば本人を確かめる）
+    if (body.action === 'manualView') return apiManualView_(body.idToken, body.data || {});
     var userId = verifyIdToken_(body.idToken);
     var data = body.data || {};
     switch (body.action) {

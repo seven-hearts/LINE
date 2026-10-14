@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <!-- ピンチで拡大できるように、拡大の禁止（maximum-scale など）は付けない -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="theme-color" content="#381e19">
+  <title>スタッフマニュアル｜セブンハーツ</title>
+  <link rel="stylesheet" href="manual.css">
+</head>
+<body>
+  <header class="bar">
+    <a class="bar-title" href="#top">スタッフマニュアル</a>
+    <span class="bar-chapter" id="bar-chapter"></span>
+    <button type="button" class="bar-button" id="toc-open" aria-controls="toc-drawer" aria-expanded="false">目次</button>
+    <div class="progress" aria-hidden="true"><span id="progress"></span></div>
+  </header>
+
+  <main id="top">
+    <section class="cover">
+      <img class="logo" src="../img/logo.png" alt="SEVEN HEARTS">
+      <h1>スタッフマニュアル</h1>
+      <p class="lead">お仕事の流れを、マンガで説明しています。<br>下にスクロールして読んでください。</p>
+      <button type="button" class="resume" id="resume" hidden></button>
+      <p class="message" id="message" hidden></p>
+      <ol class="toc" id="toc"></ol>
+    </section>
+
+    <div id="chapters"></div>
+
+    <section class="finish" id="finish" hidden>
+      <div class="finish-icon">♥</div>
+      <h2>最後まで読んでいただき、<br>ありがとうございました！</h2>
+      <p>わからないことがあれば、LINEのトークでお気軽にお問い合わせください。</p>
+      <a class="button" href="#top">目次に戻る</a>
+      <button type="button" class="button button-sub" id="close" hidden>閉じる</button>
+    </section>
+  </main>
+
+  <nav class="drawer" id="toc-drawer" hidden aria-label="目次">
+    <div class="drawer-panel">
+      <div class="drawer-head">
+        <span>目次</span>
+        <button type="button" class="bar-button" id="toc-close">閉じる</button>
+      </div>
+      <ol class="toc toc-compact" id="toc-drawer-list"></ol>
+    </div>
+  </nav>
+
+  <button type="button" class="to-top" id="to-top" aria-label="先頭へ戻る" hidden>▲</button>
+
+  <!-- LINE のアプリから開いたときに、だれが読んだかを記録するため（読み込めなくても表示はできる） -->
+  <script defer src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <script defer src="../js/config.js"></script>
+  <script defer src="manual.js"></script>
+</body>
+</html>

@@ -1,0 +1,55 @@
+# スタッフマニュアルの画像を公開用に変換する。
+# 「マニュアル原稿」フォルダに画像を入れる（GitHub の画面からアップロードする）と自動で動き、
+# WebP に変換した画像と目次（liff/manual/）を作って、このブランチに追加する。
+# 手順は マニュアル原稿/README.md を見てください。
+name: マニュアルの画像を変換
+
+on:
+  push:
+    paths:
+      - 'マニュアル原稿/**'
+      - 'scripts/build-manual.js'
+  # 「Actions」タブの「Run workflow」ボタンからも動かせる
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# 続けてアップロードしたときは、順番に1つずつ動かす
+concurrency:
+  group: manual-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: 変換に使う道具を入れる
+        run: npm ci --no-audit --no-fund
+
+      - name: 画像を変換する
+        run: npm run build:manual
+
+      - name: 変換した画像を追加する
+        run: |
+          git add -A liff/manual
+          if git diff --cached --quiet; then
+            echo "変わった画像はありません"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "マニュアルの画像を更新"
+          # 変換中に別の更新があった場合は、それを取り込んでから送る
+          for i in 1 2 3; do
+            git pull --rebase origin "${GITHUB_REF_NAME}" && git push origin "HEAD:${GITHUB_REF_NAME}" && exit 0
+            sleep 5
+          done
+          exit 1

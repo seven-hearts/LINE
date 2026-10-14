@@ -432,6 +432,10 @@ function onOpen() {
     .addItem('シフト集計を更新（翌月分）', 'updateShiftSummaryNextMonth')
     .addItem('シフト集計を更新（今月分）', 'updateShiftSummaryThisMonth')
     .addItem('シフト提出の案内を今すぐ送る（翌月分）', 'sendShiftRequestsNow')
+    .addSeparator()
+    .addItem('マニュアルの閲覧数を集計', 'updateManualSummaryNow')
+    .addItem('スタッフ用リッチメニューを作成・更新', 'createStaffRichMenu')
+    .addItem('スタッフ用リッチメニューをやめる', 'removeStaffRichMenu')
     .addToUi();
 }
 
