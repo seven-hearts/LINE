@@ -948,6 +948,44 @@ function applyTimeChanges_(apps, slots) {
   return changes;
 }
 
+// ---- 「案件応募」に手で追加する（ManualApply.html） ----
+
+/** 手で追加する応募 → 追加できない理由（なければ ''）。staff は「スタッフ登録」の行（LINE 未登録の人は null） */
+function manualApplyError_(apps, slot, staff, req) {
+  if (!slot) return '日程を選んでください（「案件一覧」に見つかりません）';
+  if (req.status !== APPLY_STATUS.APPLIED && req.status !== APPLY_STATUS.CONFIRMED) return '状態は「応募」か「確定」を選んでください';
+  if (!staff && !str_(req.name)) return 'スタッフを選ぶか、名前を入れてください';
+  var name = staff ? fullName_(staff) : str_(req.name);
+  var same = function (a) {
+    return staff ? a.userId === staff.userId : !a.userId && clientKey_(a.name) === clientKey_(name);
+  };
+  if (apps.some(function (a) { return a.slotId === slot.slotId && same(a) && a.status !== APPLY_STATUS.CANCELLED; })) {
+    return name + ' さんは、この日程にすでに入っています';
+  }
+  if (req.status === APPLY_STATUS.CONFIRMED) {
+    var day = function (a) { var d = parseYmd_(a.date); return d ? ymd_(d) : str_(a.date); };
+    var other = apps.filter(function (a) { return a.status === APPLY_STATUS.CONFIRMED && same(a) && day(a) === day(slot); })[0];
+    if (other) return name + ' さんは ' + confirmConflictMemo_(other);
+  }
+  return '';
+}
+
+/** 手で追加する応募の行 */
+function manualApplyRecord_(slot, staff, req, now) {
+  var terms = staffPayTerms_(slot.staffPay) || {};
+  return {
+    appliedAt: now, status: req.status, slotId: slot.slotId, caseId: slot.caseId, title: slot.title,
+    date: slot.date, start: slot.start, end: slot.end,
+    payUnit: terms.unit || '', payRate: terms.rate || '',
+    name: staff ? fullName_(staff) : str_(req.name),
+    phone: staff ? staff.phone : str_(req.phone),
+    userId: staff ? staff.userId : '',
+    // 確定で「連絡しない」を選んだときは、あとで自動で送らないよう記録しておく
+    notifiedAt: req.status === APPLY_STATUS.CONFIRMED && !(staff && req.notify) ? '連絡なし（手動で追加）' : '',
+    adminMemo: '[' + String(now).slice(5, 16) + '] 手動で追加'
+  };
+}
+
 // ---- 終了確認（勤務終了予定時間に、勤務時間などの報告をお願いする） ----
 
 /** 終了確認を送ってから返信を受け付ける時間（時間）。これを過ぎた返信は担当者が手で対応する */

@@ -1002,3 +1002,28 @@ test('スタッフ向け給与から給与形態と単価を読む', () => {
   assert.deepStrictEqual(plain(ctx.staffPayTerms_('日給 １０，０００円（交通費別）')), { unit: '日給', rate: 10000 });
   assert.strictEqual(ctx.staffPayTerms_('要相談'), null);
 });
+
+test('案件応募に手動で追加：重複・同じ日の確定は止め、給与形態・単価を入れる', () => {
+  const slot = { slotId: 'S-1', caseId: 'S', title: '展示会', date: '2026/10/21', start: '09:00', end: '18:00', staffPay: '時給1,200円' };
+  const staff = { userId: 'U1', lastName: '山田', firstName: '花子', phone: '090' };
+  const conf = { status: '確定' };
+  assert.strictEqual(ctx.manualApplyError_([], null, staff, conf), '日程を選んでください（「案件一覧」に見つかりません）');
+  assert.strictEqual(ctx.manualApplyError_([], slot, null, conf), 'スタッフを選ぶか、名前を入れてください');
+  assert.strictEqual(ctx.manualApplyError_([], slot, staff, conf), '');
+  assert.match(ctx.manualApplyError_([{ slotId: 'S-1', userId: 'U1', status: '応募' }], slot, staff, conf), /すでに入っています/);
+  assert.strictEqual(ctx.manualApplyError_([{ slotId: 'S-1', userId: 'U1', status: '辞退' }], slot, staff, conf), '');
+  const other = { slotId: 'T-1', userId: 'U1', status: '確定', date: '2026/10/21', title: '物産展', start: '10:00', end: '15:00' };
+  assert.match(ctx.manualApplyError_([other], slot, staff, conf), /同じ日（2026\/10\/21）に「物産展」/);
+  assert.strictEqual(ctx.manualApplyError_([other], slot, staff, { status: '応募' }), '');
+  // LINE 未登録の人は名前で重複を見る
+  assert.match(ctx.manualApplyError_([{ slotId: 'S-1', userId: '', name: '鈴木 一', status: '確定' }], slot, null, { status: '確定', name: '鈴木一' }), /すでに入っています/);
+
+  const rec = plain(ctx.manualApplyRecord_(slot, staff, { status: '確定', notify: true }, '2026/10/19 12:34:56'));
+  assert.deepStrictEqual([rec.name, rec.userId, rec.payUnit, rec.payRate, rec.notifiedAt, rec.adminMemo, rec.date, rec.start],
+    ['山田 花子', 'U1', '時給', 1200, '', '[10/19 12:34] 手動で追加', '2026/10/21', '09:00']);
+  // 連絡しない・LINE 未登録の人は、あとで自動で送らないよう記録する
+  assert.strictEqual(ctx.manualApplyRecord_(slot, staff, { status: '確定', notify: false }, 'x').notifiedAt, '連絡なし（手動で追加）');
+  const offline = plain(ctx.manualApplyRecord_(slot, null, { status: '確定', name: ' 鈴木 一 ', phone: '080' }, 'x'));
+  assert.deepStrictEqual([offline.name, offline.phone, offline.userId], ['鈴木 一', '080', '']);
+  assert.strictEqual(ctx.manualApplyRecord_(slot, staff, { status: '応募' }, 'x').notifiedAt, '');
+});

@@ -703,6 +703,62 @@ function fillApplyPayTerms_() {
   });
 }
 
+// ---- 「案件応募」に手で追加する（ManualApply.html から呼ぶ） ----
+
+function showManualApply() {
+  jobSheets_();
+  var html = HtmlService.createHtmlOutputFromFile('ManualApply').setWidth(760).setHeight(700);
+  SpreadsheetApp.getUi().showModalDialog(html, '案件応募に手動で追加');
+}
+
+/** 画面を開いたとき：選べる日程（2か月前〜）と、スタッフの一覧 */
+function manualApplyInit() {
+  var now = new Date();
+  var from = ymd_(new Date(now.getFullYear(), now.getMonth() - 2, now.getDate()));
+  var slots = readAll_(JOB_SHEET).map(function (x) { return x.rec; }).filter(function (r) {
+    var d = parseYmd_(r.date);
+    return r.slotId && d && ymd_(d) >= from;
+  }).sort(function (a, b) {
+    var da = ymd_(parseYmd_(a.date)) + normalizeTime_(a.start), db = ymd_(parseYmd_(b.date)) + normalizeTime_(b.start);
+    return da < db ? -1 : da > db ? 1 : 0;
+  }).map(function (r) {
+    return { slotId: r.slotId, label: slotLabel_(r) + ' ' + str_(r.title), client: str_(r.client), past: ymd_(parseYmd_(r.date)) < ymd_(now) };
+  });
+  var staff = staffRecords_().filter(function (s) { return s.userId && s.lastName; }).map(function (s) {
+    return { userId: s.userId, name: fullName_(s), kana: str_(s.lastNameKana) + ' ' + str_(s.firstNameKana), status: s.status, blocked: !!s.blocked };
+  });
+  return { slots: slots, staff: staff, today: ymd_(now) };
+}
+
+function manualApplyAdd(req) {
+  req = req || {};
+  var staff = req.userId ? readRecord_(REG_SHEET, req.userId) : null;
+  if (req.userId && !staff) throw new UserError('選んだスタッフが「スタッフ登録」に見つかりません');
+  var result = withLock_(function () {
+    var slot = findSlot_(req.slotId);
+    var apps = readAll_(APPLY_SHEET).map(function (x) { return x.rec; });
+    var error = manualApplyError_(apps, slot && slot.rec, staff, req);
+    if (error) throw new UserError(error);
+    var rec = manualApplyRecord_(slot.rec, staff, req, now_());
+    var row = appendRecords_(APPLY_SHEET, [rec]);
+    var count = apps.filter(function (a) { return a.slotId === rec.slotId && a.status !== APPLY_STATUS.CANCELLED; }).length + 1;
+    updateCells_(JOB_SHEET, slot.row, { applied: count });
+    return { row: row, rec: rec };
+  });
+  var rec = result.rec;
+  var sent = false;
+  if (staff && req.notify && rec.status === APPLY_STATUS.CONFIRMED) {
+    sent = !!pushMessage_(rec.userId, [textMessage_(applyConfirmedText_(rec))]);
+    updateCells_(APPLY_SHEET, result.row, sent ? { notifiedAt: now_() }
+      : { notifiedAt: '連絡なし（手動で追加）', adminMemo: appendMemo_(rec.adminMemo, '確定の連絡を送れませんでした：' + lastLineError_) });
+  }
+  return {
+    row: result.row,
+    text: rec.name + ' さんを「' + rec.status + '」で追加しました（' + result.row + '行目）。' +
+      (staff && req.notify && rec.status === APPLY_STATUS.CONFIRMED ? (sent ? 'LINE で確定の連絡を送りました。' : 'LINE の連絡は送れませんでした（管理メモを確認してください）。') : '')
+  };
+}
+
 // ---- 詳細連絡（DetailSend.html から呼ぶ） ----
 
 function showDetailSend() {

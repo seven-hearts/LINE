@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html>
+<head>
+<base target="_top">
+<meta charset="utf-8">
+<style>
+  :root { --brand: #381E19; --line: #ddd; --muted: #777; --bg: #faf7f5; --err: #c62828; }
+  * { box-sizing: border-box; }
+  body { font-family: "Hiragino Sans", "Noto Sans JP", sans-serif; font-size: 13px; margin: 0; padding: 12px 16px 80px; color: #222; }
+  h2 { font-size: 14px; margin: 16px 0 6px; color: var(--brand); }
+  input[type=text], select { font: inherit; padding: 5px 6px; border: 1px solid var(--line); border-radius: 4px; }
+  select { width: 100%; }
+  .list { border: 1px solid var(--line); border-radius: 6px; max-height: 190px; overflow-y: auto; margin-top: 6px; }
+  .item { display: flex; gap: 8px; align-items: baseline; padding: 5px 10px; border-bottom: 1px solid #f0ebe7; cursor: pointer; }
+  .item:last-child { border-bottom: none; }
+  .item .sub { color: var(--muted); font-size: 11px; }
+  .item.on { background: var(--bg); }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .other { display: none; margin-top: 6px; }
+  label { white-space: nowrap; }
+  button { font: inherit; padding: 7px 16px; border-radius: 4px; border: 1px solid var(--brand); background: #fff; color: var(--brand); cursor: pointer; }
+  button.primary { background: var(--brand); color: #fff; }
+  button:disabled { opacity: .5; cursor: default; }
+  .msg { margin: 8px 0; padding: 8px 10px; border-radius: 4px; display: none; white-space: pre-wrap; }
+  .msg.err { display: block; background: #fdecea; color: var(--err); }
+  .msg.info { display: block; background: #eef6ee; color: #2e7d32; }
+  .hint { color: var(--muted); font-size: 11px; }
+  .bar { position: fixed; left: 0; right: 0; bottom: 0; padding: 10px 16px; background: #fff; border-top: 1px solid var(--line); display: flex; gap: 8px; align-items: center; }
+</style>
+</head>
+<body>
+  <div id="msg" class="msg"></div>
+
+  <h2>① 日程</h2>
+  <div class="row"><input type="text" id="slotSearch" placeholder="タイトル・日付・取引先で絞り込み" style="width:280px">
+    <label><input type="checkbox" id="showPast"> 過ぎた日程も出す（2か月前まで）</label></div>
+  <select id="slot" size="7"></select>
+
+  <h2>② スタッフ</h2>
+  <div class="row">
+    <label><input type="radio" name="who" value="line" checked> 登録済みのスタッフ</label>
+    <label><input type="radio" name="who" value="other"> LINE 未登録の人</label>
+  </div>
+  <div id="lineBox">
+    <input type="text" id="staffSearch" placeholder="名前・フリガナで絞り込み" style="width:280px">
+    <div class="list" id="staffList"></div>
+  </div>
+  <div id="otherBox" class="other row">
+    <input type="text" id="name" placeholder="氏名（例：山田 太郎）" style="width:220px">
+    <input type="text" id="phone" placeholder="電話番号（任意）" style="width:180px">
+    <span class="hint">LINE の連絡は送れません。</span>
+  </div>
+
+  <h2>③ 状態</h2>
+  <div class="row">
+    <label><input type="radio" name="status" value="確定" checked> 確定</label>
+    <label><input type="radio" name="status" value="応募"> 応募</label>
+    <label id="notifyLabel"><input type="checkbox" id="notify" checked> LINE で確定の連絡を送る</label>
+  </div>
+  <div class="hint">「応募」で追加した人を、あとでシートで「確定」にすると、いつもどおり確定の連絡が自動で送られます。</div>
+
+  <div class="bar">
+    <button id="add" class="primary">追加する</button>
+    <button onclick="google.script.host.close()">閉じる</button>
+    <span class="hint">続けて何人でも追加できます。</span>
+  </div>
+
+<script>
+var data = { slots: [], staff: [] };
+var chosenStaff = '';
+function $(id) { return document.getElementById(id); }
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+function norm(s) { return String(s || '').replace(/\s/g, '').toLowerCase(); }
+function showMsg(text, kind) { var m = $('msg'); m.textContent = text; m.className = 'msg ' + (kind || 'err'); }
+function who() { return document.querySelector('input[name=who]:checked').value; }
+function status() { return document.querySelector('input[name=status]:checked').value; }
+
+function renderSlots() {
+  var q = norm($('slotSearch').value), past = $('showPast').checked, keep = $('slot').value;
+  var list = data.slots.filter(function (s) { return (past || !s.past) && (!q || norm(s.label + s.client).indexOf(q) >= 0); });
+  $('slot').innerHTML = list.length ? list.map(function (s) {
+    return '<option value="' + esc(s.slotId) + '"' + (s.slotId === keep ? ' selected' : '') + '>' + esc(s.label) + (s.client ? '（' + esc(s.client) + '）' : '') + '</option>';
+  }).join('') : '<option value="" disabled>該当する日程がありません</option>';
+}
+function renderStaff() {
+  var q = norm($('staffSearch').value);
+  var list = data.staff.filter(function (s) { return !q || norm(s.name + s.kana).indexOf(q) >= 0; }).slice(0, 200);
+  $('staffList').innerHTML = list.map(function (s) {
+    return '<label class="item' + (s.userId === chosenStaff ? ' on' : '') + '"><input type="radio" name="staff" value="' + esc(s.userId) + '"' + (s.userId === chosenStaff ? ' checked' : '') + '>' +
+      '<span>' + esc(s.name) + '</span><span class="sub">' + esc([s.kana, s.status, s.blocked ? 'ブロック中' : ''].filter(Boolean).join('／')) + '</span></label>';
+  }).join('') || '<div class="item sub">該当するスタッフがいません</div>';
+}
+function updateForm() {
+  var line = who() === 'line';
+  $('lineBox').style.display = line ? 'block' : 'none';
+  $('otherBox').style.display = line ? 'none' : 'flex';
+  $('notifyLabel').style.display = line && status() === '確定' ? '' : 'none';
+}
+
+google.script.run.withSuccessHandler(function (r) {
+  data = r;
+  renderSlots();
+  renderStaff();
+  updateForm();
+}).withFailureHandler(function (e) { showMsg(e.message); }).manualApplyInit();
+
+$('slotSearch').oninput = renderSlots;
+$('showPast').onchange = renderSlots;
+$('staffSearch').oninput = renderStaff;
+document.addEventListener('change', function (e) {
+  if (e.target.name === 'staff') { chosenStaff = e.target.value; renderStaff(); }
+  if (e.target.name === 'who' || e.target.name === 'status') updateForm();
+});
+
+$('add').onclick = function () {
+  var req = { slotId: $('slot').value, status: status() };
+  if (!req.slotId) return showMsg('日程を選んでください');
+  if (who() === 'line') {
+    if (!chosenStaff) return showMsg('スタッフを選んでください');
+    req.userId = chosenStaff;
+    req.notify = $('notify').checked;
+  } else {
+    req.name = $('name').value.trim();
+    req.phone = $('phone').value.trim();
+    if (!req.name) return showMsg('名前を入れてください');
+  }
+  $('add').disabled = true;
+  google.script.run.withSuccessHandler(function (r) {
+    $('add').disabled = false;
+    showMsg(r.text, 'info');
+    chosenStaff = '';
+    $('name').value = '';
+    $('phone').value = '';
+    renderStaff();
+  }).withFailureHandler(function (e) { $('add').disabled = false; showMsg(e.message); }).manualApplyAdd(req);
+};
+</script>
+</body>
+</html>

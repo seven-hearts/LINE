@@ -298,6 +298,19 @@ LINEコールに戻すときは、スクリプト プロパティ `INTERVIEW_MET
 
 「日程」「開始予定時間」「終了予定時間」（G〜I列）は「案件一覧」と同じ値が入り、「案件一覧」で時間を変えると自動で反映されます（「案件応募」側を直接変えても、1分以内に「案件一覧」の値に戻ります）。
 
+#### 手動で追加する
+
+LINE 以外（電話など）で決まった人は、メニュー「セブンハーツ > 案件応募に手動で追加」から追加できます。
+
+1. 日程を選ぶ（過ぎた日程も、2か月前まで選べます）
+2. スタッフを選ぶ（「スタッフ登録」の人）か、「LINE 未登録の人」で名前・電話番号を入れる
+3. 状態（確定・応募）を選んで「追加する」
+
+- 枠ID・タイトル・日程・予定の時間・給与形態・単価は自動で入ります。「案件一覧」の応募人数も数え直します
+- 登録済みのスタッフを「確定」で追加するとき、「LINE で確定の連絡を送る」にチェックがあれば、確定の連絡を送ります。チェックを外すと送りません（あとからも自動では送りません）
+- 同じ日程にすでに入っている人や、同じ日にほかの日程で確定している人は追加できません
+- 追加した行は、管理メモに「手動で追加」と入ります。請求書（freee）の計算にも含まれます
+
 #### 実際の勤務時間と給与（J〜P列）
 
 予定の時間とは別に、実際の勤務時間と給与を記録できます。
@@ -583,7 +596,7 @@ Claude に切り替えるときは、`ANTHROPIC_API_KEY` を入れて `AI_PROVID
 1. Googleスプレッドシートを新規作成する（例：「セブンハーツ スタッフ名簿」）
 2. メニューの「拡張機能 > Apps Script」を開く
 3. `gas/` の各ファイル（`Code.gs`、`Api.gs`、`Webhook.gs`、`Sheet.gs`、`Line.gs`、`Validation.gs`、`Options.gs`、`Chat.gs`、`Interview.gs`、`Diagnostics.gs`、`Jobs.gs`、`JobsApp.gs`、`Shift.gs`、`Manual.gs`、`RichMenu.gs`、`Freee.gs`）を、同じ名前のファイルとして作成し、内容を貼り付ける
-   - `JobImport.html`・`JobSend.html`・`DetailSend.html`・`FreeeInvoice.html` は「＋ > HTML」で `JobImport`・`JobSend`・`DetailSend`・`FreeeInvoice`（`.html` は付けない）という名前で作成し、内容を貼り付ける
+   - `JobImport.html`・`JobSend.html`・`DetailSend.html`・`FreeeInvoice.html`・`ManualApply.html` は「＋ > HTML」で `JobImport`・`JobSend`・`DetailSend`・`FreeeInvoice`・`ManualApply`（`.html` は付けない）という名前で作成し、内容を貼り付ける
 4. 「プロジェクトの設定」で「appsscript.json マニフェスト ファイルをエディタで表示する」をオンにし、`gas/appsscript.json` の内容を貼り付ける
 5. 「プロジェクトの設定 > スクリプト プロパティ」に次の値を追加する
 
