@@ -105,11 +105,19 @@ function invoiceRowLines_(row, workers) {
   var title = str_(row.title) + (row.role && row.role !== DEFAULT_ROLE ? '（' + row.role + '）' : '');
   var lines = [];
   if (wh) {
-    var total = wh.hours.reduce(function (a, b) { return a + b; }, 0);
-    var same = wh.hours.every(function (h, i) { return h === wh.hours[0] && wh.times[i] === wh.times[0]; });
-    lines.push({
-      description: day + ' ' + title + (same ? ' ' + wh.times[0] + '（' + wh.hours[0] + '時間×' + n + '名）' : '（' + n + '名・合計' + round3_(total) + '時間）'),
-      sales_date: date, quantity: round3_(total), unit: '時間', unit_price: price
+    // 同じ時間で働いた人をまとめ、時間ごとに1行（開始時間の早い順）
+    var groups = [];
+    wh.hours.forEach(function (h, i) {
+      var g = groups.filter(function (x) { return x.times === wh.times[i] && x.hours === h; })[0];
+      if (g) g.n++;
+      else groups.push({ times: wh.times[i], hours: h, n: 1 });
+    });
+    groups.sort(function (a, b) { return a.times < b.times ? -1 : a.times > b.times ? 1 : a.hours - b.hours; });
+    groups.forEach(function (g) {
+      lines.push({
+        description: day + ' ' + title + ' ' + g.times + '（' + g.hours + '時間×' + g.n + '名）',
+        sales_date: date, quantity: round3_(g.hours * g.n), unit: '時間', unit_price: price
+      });
     });
   } else if (row.unit === '時給') {
     lines.push({

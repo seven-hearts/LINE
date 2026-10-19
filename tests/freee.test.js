@@ -100,9 +100,18 @@ test('案件応募の実際の勤務時間（休憩を含む）と人数で請�
   assert.match(inv.warnings[0], /出勤（確定）の2名で計算しています（案件一覧の人数は3名）/);
   // 人によって違う・未入力の人は予定の時間（08:30〜17:30 = 9時間）
   [inv] = plain(ctx.buildInvoices_([row()], '2026/10', { 'A-1': [w('山田', '8:30', '18:00'), w('佐藤', '9:00', '17:00'), w('鈴木', '', '')] }));
-  assert.strictEqual(inv.lines[0].description, '10/8(木) 展示会運営（3名・合計26.5時間）');
-  assert.strictEqual(inv.lines[0].quantity, 26.5);
+  assert.deepStrictEqual(inv.lines.map((l) => [l.description, l.quantity]), [
+    ['10/8(木) 展示会運営 08:30〜17:30（9時間×1名）', 9],
+    ['10/8(木) 展示会運営 08:30〜18:00（9.5時間×1名）', 9.5],
+    ['10/8(木) 展示会運営 09:00〜17:00（8時間×1名）', 8],
+    ['10/8(木) 交通費（3名）', 3]
+  ]);
   assert.deepStrictEqual(inv.warnings, ['2行目 10/8(木) 展示会運営：勤務開始・終了時間が未入力のため予定の時間で計算：鈴木']);
+  [inv] = plain(ctx.buildInvoices_([row({ transport: '' })], '2026/10', { 'A-1': [w('山田', '9:00', '17:00'), w('佐藤', '8:30', '18:00'), w('鈴木', '09:00', '17:00')] }));
+  assert.deepStrictEqual(inv.lines.map((l) => l.description), [
+    '10/8(木) 展示会運営 08:30〜18:00（9.5時間×1名）',
+    '10/8(木) 展示会運営 09:00〜17:00（8時間×2名）'
+  ]);
   // 時間保証は1人ずつ
   [inv] = plain(ctx.buildInvoices_([row({ notes: '5時間保証', headcount: 1 })], '2026/10', { 'A-1': [w('山田', '9:00', '12:00')] }));
   assert.strictEqual(inv.lines[0].quantity, 5);
