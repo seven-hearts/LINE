@@ -461,6 +461,20 @@ function jobBuckets_(staff, groups, req) {
   return keys.map(function (k) { return buckets[k]; });
 }
 
+/**
+ * 送信先を、画面で選んだ人だけに絞る（条件に合わない人は、選ばれていても送らない）。
+ * @param {Array<{groups: Array, userIds: string[]}>} buckets jobBuckets_ の結果
+ * @param {string[]=} userIds 送る人。省略したら全員に送る
+ */
+function restrictBuckets_(buckets, userIds) {
+  if (!userIds) return buckets;
+  var chosen = {};
+  userIds.forEach(function (id) { chosen[id] = true; });
+  return buckets.map(function (b) {
+    return { groups: b.groups, userIds: b.userIds.filter(function (id) { return chosen[id]; }) };
+  }).filter(function (b) { return b.userIds.length; });
+}
+
 function infoLine_(label, text) {
   return {
     type: 'box', layout: 'baseline', spacing: 'sm',

@@ -29,6 +29,16 @@
   .msg.plain { display: block; background: #f5f5f5; }
   .bar { position: fixed; left: 0; right: 0; bottom: 0; padding: 10px 16px; background: #fff; border-top: 1px solid var(--line); display: flex; gap: 8px; align-items: center; }
   .hint { color: var(--muted); font-size: 11px; }
+  #recipients { display: none; border: 1px solid var(--line); border-radius: 6px; margin-top: 8px; }
+  .rc-head { display: flex; gap: 8px; align-items: center; padding: 8px 10px; border-bottom: 1px solid var(--line); background: var(--bg); flex-wrap: wrap; }
+  .rc-head input[type=text] { width: 180px; }
+  .rc-head button { padding: 3px 10px; font-size: 12px; }
+  .rc-list { max-height: 260px; overflow-y: auto; }
+  .rc { display: flex; gap: 8px; align-items: baseline; padding: 6px 10px; border-bottom: 1px solid #f0ebe7; cursor: pointer; }
+  .rc:last-child { border-bottom: none; }
+  .rc .who { min-width: 150px; }
+  .rc .sub { color: var(--muted); font-size: 11px; }
+  .rc.off .who { color: var(--muted); text-decoration: line-through; }
 </style>
 </head>
 <body>
@@ -46,6 +56,16 @@
     <label><input type="checkbox" id="matchWeekday"> 勤務できる曜日が合う人だけ</label>
   </div>
   <div id="preview" class="msg"></div>
+  <div id="recipients">
+    <div class="rc-head">
+      <strong id="rcCount"></strong>
+      <input type="text" id="rcSearch" placeholder="名前・フリガナで絞り込み">
+      <button type="button" id="rcAll">表示中を全員選ぶ</button>
+      <button type="button" id="rcNone">表示中を全員外す</button>
+      <span class="hint">チェックを外した人には送りません。</span>
+    </div>
+    <div class="rc-list" id="rcList"></div>
+  </div>
 
   <div class="bar">
     <button id="check">送信先を確認</button>
@@ -82,11 +102,60 @@ google.script.run.withSuccessHandler(function (r) {
   }).join('');
 }).withFailureHandler(function (e) { showMsg(e.message); }).jobSendInit();
 
+// ---- 送信先を1人ずつ選ぶ ----
+var users = [];
+function selectedIds() {
+  return Array.prototype.map.call(document.querySelectorAll('#rcList input:checked'), function (x) { return x.value; });
+}
+function updateSelected() {
+  var n = selectedIds().length;
+  $('rcCount').textContent = '送信先：' + n + ' / ' + users.length + '人';
+  Array.prototype.forEach.call(document.querySelectorAll('#rcList .rc'), function (row) {
+    row.className = 'rc' + (row.querySelector('input').checked ? '' : ' off');
+  });
+  $('send').disabled = !n;
+  $('send').textContent = n ? n + '人に配信する' : '配信する';
+}
+function renderRecipients(list) {
+  users = list;
+  $('rcSearch').value = '';
+  $('rcList').innerHTML = list.map(function (u) {
+    return '<label class="rc"><input type="checkbox" value="' + esc(u.id) + '" checked>' +
+      '<span class="who">' + esc(u.name) + '</span>' +
+      '<span class="sub">' + esc([u.status, u.gender, u.areas && ('希望：' + u.areas)].filter(Boolean).join('／')) +
+      (u.cases.length > 1 ? '<br>受け取る案件：' + esc(u.cases.join('、')) : '') + '</span></label>';
+  }).join('');
+  $('recipients').style.display = list.length ? 'block' : 'none';
+  updateSelected();
+}
+function hideRecipients() {
+  users = [];
+  $('recipients').style.display = 'none';
+  $('rcList').innerHTML = '';
+}
+$('rcSearch').oninput = function () {
+  var q = this.value.replace(/\s/g, '');
+  Array.prototype.forEach.call(document.querySelectorAll('#rcList .rc'), function (row, i) {
+    var u = users[i];
+    row.style.display = !q || (u.name + u.kana).replace(/\s/g, '').indexOf(q) >= 0 ? '' : 'none';
+  });
+};
+function setVisible(checked) {
+  Array.prototype.forEach.call(document.querySelectorAll('#rcList .rc'), function (row) {
+    if (row.style.display !== 'none') row.querySelector('input').checked = checked;
+  });
+  updateSelected();
+}
+$('rcAll').onclick = function () { setVisible(true); };
+$('rcNone').onclick = function () { setVisible(false); };
+
 document.addEventListener('change', function (e) {
+  if ($('recipients').contains(e.target)) return updateSelected();
   if (e.target.dataset && e.target.dataset.i !== undefined) {
     $('card' + e.target.dataset.i).className = 'card' + (e.target.checked ? ' on' : '');
   }
   $('send').disabled = true; // 条件を変えたら確認し直す
+  hideRecipients();
 });
 document.addEventListener('click', function (e) {
   if (e.target.tagName === 'STRONG' || (e.target.parentNode && e.target.parentNode.className === 'card-head' && e.target.tagName === 'SPAN')) {
@@ -129,27 +198,30 @@ $('check').onclick = function () {
       var cond = [f.areas.length ? 'エリア：' + f.areas.join('・') : '', f.gender === '女性のみ' || f.gender === '男性のみ' ? f.gender : ''].filter(Boolean).join('／');
       return '・' + c.title + '：' + c.count + '人' + (cond ? '（' + cond + '）' : '');
     });
-    p.textContent = '送信先：合計 ' + r.count + '人（受け取る案件は、条件に合うものだけです）\n' + lines.join('\n') +
-      (r.names.length ? '\n\n' + r.names.join('、') + (r.count > r.names.length ? ' ほか' : '') : '');
-    $('send').disabled = !r.count;
-    $('send').textContent = r.count ? r.count + '人に配信する' : '配信する';
+    p.textContent = '条件に合う人：合計 ' + r.count + '人（受け取る案件は、条件に合うものだけです）\n' + lines.join('\n') +
+      (r.count ? '\n\n下の一覧で、送る人を選べます（はじめは全員にチェックが入っています）。' : '');
+    renderRecipients(r.users);
   }).withFailureHandler(function (e) { $('check').disabled = false; showMsg(e.message); }).jobSendPreview(req);
 };
 
 $('send').onclick = function () {
+  var req = request();
+  req.userIds = selectedIds();
+  if (!req.userIds.length) return showMsg('送る人にチェックを入れてください');
   $('send').disabled = true;
   $('check').disabled = true;
   $('send').textContent = '送信中…';
   google.script.run.withSuccessHandler(function (r) {
     $('check').disabled = false;
     $('send').textContent = '配信する';
+    hideRecipients();
     showMsg(r.sent + '人に配信しました。' + (r.failed ? '\n' + r.failed + '人には送れませんでした（シート「エラーログ」を確認してください）。' : '') +
       '\n応募はシート「案件応募」に入ります。', r.failed ? 'err' : 'info');
   }).withFailureHandler(function (e) {
     $('check').disabled = false;
     $('send').textContent = '配信する';
     showMsg(e.message);
-  }).jobSend(request());
+  }).jobSend(req);
 };
 </script>
 </body>

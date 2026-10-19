@@ -129,6 +129,8 @@ COLUMNS[ONB_SHEET] = [
 
 COLUMNS[CHAT_SHEET] = [
   ['userId', 'LINEユーザーID'],
+  ['name', '氏名'],             // トークで答えたお名前（答える前は空）
+  ['lineName', 'LINE表示名'],   // 名前を答える前でも誰かわかるように
   ['question', '回答中の質問'],
   ['state', '回答内容（システム用）'],
   ['startedAt', '開始日時'],

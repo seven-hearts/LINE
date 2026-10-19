@@ -169,6 +169,15 @@ test('送信先は、受け取る案件の組み合わせごとにまとめる',
   ]);
 });
 
+test('チェックした人にだけ送る（チェックがない組み合わせは送らない）', () => {
+  const req = { statuses: ['稼働可'], matchArea: false, matchGender: true, matchWeekday: false };
+  const buckets = ctx.jobBuckets_(staff, [osakaFemale, kyoto], req);
+  const view = (bs) => bs.map((b) => ({ n: b.groups.length, ids: Array.from(b.userIds) }));
+  assert.deepStrictEqual(plain(view(ctx.restrictBuckets_(buckets, ['U3']))), [{ n: 1, ids: ['U3'] }]);
+  assert.deepStrictEqual(plain(view(ctx.restrictBuckets_(buckets, undefined))), plain(view(buckets)));
+  assert.deepStrictEqual(plain(view(ctx.restrictBuckets_(buckets, []))), []);
+});
+
 test('LINE のメッセージは上限（ボタンの文字数・postback・カルーセル）に収まる', () => {
   const many = rowsOf([Object.assign({}, monozukuri, {
     shifts: Array.from({ length: 10 }, (_, i) => ({ date: '2026-11-' + String(i + 1).padStart(2, '0'), holiday: false, start: '13:30', end: '18:45', break_minutes: null, headcount: 1, note: '' }))

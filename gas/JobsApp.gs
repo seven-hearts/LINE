@@ -509,18 +509,29 @@ function staffRecords_() {
   return readAll_(REG_SHEET).map(function (x) { return x.rec; });
 }
 
-/** 送信先の人数と名前（送る前の確認） */
+/** 送信先の人数と一覧（送る前の確認。画面で1人ずつ選べるようにする） */
 function jobSendPreview(req) {
   var groups = selectedGroups_(req.caseIds || []);
   var staff = staffRecords_();
   var buckets = jobBuckets_(staff, groups, req);
   var byId = {};
   staff.forEach(function (r) { byId[r.userId] = r; });
-  var ids = [];
-  buckets.forEach(function (b) { ids = ids.concat(b.userIds); });
+  var users = [];
+  buckets.forEach(function (b) {
+    b.userIds.forEach(function (id) {
+      var r = byId[id];
+      users.push({
+        id: id,
+        name: r.lastName + ' ' + r.firstName,
+        kana: str_(r.lastNameKana) + ' ' + str_(r.firstNameKana),
+        status: r.status, gender: r.gender, areas: str_(r.areas),
+        cases: b.groups.map(function (rows) { return rows[0].title; })
+      });
+    });
+  });
   return {
-    count: ids.length,
-    names: ids.slice(0, 100).map(function (id) { return byId[id].lastName + ' ' + byId[id].firstName; }),
+    count: users.length,
+    users: users,
     perCase: groups.map(function (rows) {
       var n = 0;
       buckets.forEach(function (b) { if (b.groups.indexOf(rows) >= 0) n += b.userIds.length; });
@@ -543,8 +554,9 @@ function jobSend(req) {
   var groups = selectedGroups_(req.caseIds || []);
   var noPay = groups.filter(function (rows) { return !str_(rows[0].staffPay); });
   if (noPay.length) throw new Error('スタッフ向け給与を入れてください：' + noPay.map(function (rows) { return rows[0].title; }).join('、'));
-  var buckets = jobBuckets_(staffRecords_(), groups, req);
-  if (!buckets.length) throw new Error('送信先のスタッフがいません。条件を変えてください');
+  // 画面で選んだ人だけに送る（条件に合う人の中から選ぶので、条件に合わない人には送らない）
+  var buckets = restrictBuckets_(jobBuckets_(staffRecords_(), groups, req), req.userIds);
+  if (!buckets.length) throw new Error('送信先のスタッフがいません。条件を変えるか、送る人にチェックを入れてください');
 
   // 同じ案件の組み合わせを受け取る人ごとにまとめて送る（エリア・性別の条件が案件ごとに違うため）
   var sent = 0, failed = 0, lastError = '';

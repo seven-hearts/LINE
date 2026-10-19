@@ -100,13 +100,71 @@ function saveChat_(userId, state) {
     startedAt: Utilities.formatDate(new Date(state.startedAt), 'Asia/Tokyo', 'yyyy/MM/dd HH:mm:ss'),
     updatedAt: now_()
   };
-  // 返事があったら、リマインドは数え直す（また1日後・3日後に送る）。
   // setup を実行し直す前（列がない）でも友だち追加のやりとりが止まらないよう、列があるときだけ書く
-  if (headerMap_(sheet_(CHAT_SHEET))['リマインド回数'] !== undefined) {
+  var header = headerMap_(sheet_(CHAT_SHEET));
+  // 返事があったら、リマインドは数え直す（また1日後・3日後に送る）
+  if (header['リマインド回数'] !== undefined) {
     fields.remindCount = 0;
     fields.remindedAt = '';
   }
+  if (header['氏名'] !== undefined) fields.name = chatName_(state);
+  if (header['LINE表示名'] !== undefined) {
+    // LINE表示名は最初の1回だけ取得して、やりとりの状態に覚えておく
+    if (state.lineName === undefined) {
+      state.lineName = lineDisplayName_(userId);
+      fields.state = JSON.stringify(state);
+    }
+    fields.lineName = state.lineName;
+  }
   writeRecord_(CHAT_SHEET, userId, fields);
+}
+
+/** LINE の表示名。取れなくても（ブロック中・通信エラーなど）登録のやりとりは止めない */
+function lineDisplayName_(userId) {
+  try {
+    var profile = getLineProfile_(userId);
+    return (profile && profile.displayName) || '';
+  } catch (err) {
+    console.warn('profile failed', err);
+    return '';
+  }
+}
+
+/** トークで答えたお名前（姓だけ答えた段階なら姓のみ） */
+function chatName_(state) {
+  var d = (state && state.data) || {};
+  return [d.lastName, d.firstName].filter(Boolean).join(' ');
+}
+
+/**
+ * setup から呼ぶ：「氏名」「LINE表示名」の列を LINEユーザーID のすぐ右に追加し、今いる人の分を埋める。
+ */
+function migrateChatSheet_(ss) {
+  var sh = ss.getSheetByName(CHAT_SHEET);
+  if (!sh || sh.getLastColumn() < 1) return;
+  var header = headerMap_(sh);
+  if (header['LINEユーザーID'] === undefined) return;
+  ['LINE表示名', '氏名'].forEach(function (label) {
+    if (headerMap_(sh)[label] !== undefined) return;
+    var idCol = headerMap_(sh)['LINEユーザーID'] + 1;
+    sh.insertColumnAfter(idCol);
+    sh.getRange(1, idCol + 1).setValue(label);
+  });
+  header = headerMap_(sh);
+  var last = sh.getLastRow();
+  if (last < 2) return;
+  var values = sh.getRange(2, 1, last - 1, sh.getLastColumn()).getValues();
+  values.forEach(function (row, i) {
+    var userId = row[header['LINEユーザーID']];
+    if (!userId) return;
+    var state = {};
+    try { state = JSON.parse(row[header['回答内容（システム用）']] || '{}'); } catch (e) { /* 読めなければ空 */ }
+    if (!row[header['氏名']]) sh.getRange(i + 2, header['氏名'] + 1).setValue(chatName_(state));
+    if (!row[header['LINE表示名']]) {
+      var lineName = lineDisplayName_(userId);
+      if (lineName) sh.getRange(i + 2, header['LINE表示名'] + 1).setValue(lineName);
+    }
+  });
 }
 
 // ---- 登録途中の人へのリマインド ----
