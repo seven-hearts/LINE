@@ -1,7 +1,7 @@
 /**
  * freee会計の請求書（freee請求書 API）を、シート「案件一覧」から作る。
  *
- * - メニュー「freee に請求書を作る」→ 月を選ぶ → 取引先ごとの内容を確認 → freee に「送付待ち」の請求書を作成
+ * - メニュー「freee に請求書を作る」→ 月を選ぶ → 取引先・タイトルごとの内容を確認 → freee に「送付待ち」の請求書を作成
  * - 請求額 = 単価 × 時間（開始〜終了。休憩時間を含む）× 人数。日給は 単価 × 人数
  * - 交通費・食費は、明細に別の行で入れる（1人あたりの金額 × 人数）
  * - 末締め。支払期日は取引先ごとの決まり（PAYMENT_TERMS）
@@ -18,7 +18,7 @@ var FREEE_API = 'https://api.freee.co.jp';
 var FREEE_REDIRECT_URI = 'urn:ietf:wg:oauth:2.0:oob';
 
 var INVOICE_TAX_RATE = 10;
-/** 請求書の件名（「2026年10月分 」のあとに付く） */
+/** 請求書の件名（「2026年10月分 」のあとに付く）。タイトルが空欄の行に使う */
 var INVOICE_SUBJECT = 'イベント運営業務';
 
 // ---- 計算（シート・freee に触れない） ----
@@ -98,25 +98,26 @@ function lineAmount_(l) {
 }
 
 /**
- * その月に請求する行を、取引先ごとの請求書にまとめる。
+ * その月に請求する行を、取引先・タイトルごとの請求書にまとめる（件名は「2026年10月分 タイトル」）。
  * @param {Array} rows 「案件一覧」の行（_row にシートの行番号）
  * @param {string} ym 「2026/10」（売上計上月）
  * @param {Object} attendance 枠ID → 出勤した人数（「案件応募」で確定・欠勤以外。応募がない枠は入れない）
  */
 function buildInvoices_(rows, ym, attendance, defaultMonths) {
-  var byClient = {};
+  var byKey = {};
   var order = [];
   rows.forEach(function (r) {
     if (ymOf_(r.salesMonth) !== ym) return;
     if (str_(r.invoice) && r.invoice !== INVOICE_OPTIONS[0]) return; // 発行済・入金済
     if (str_(r.freeeInvoice)) return;
     var client = str_(r.client) || '（取引先名なし）';
-    var key = clientKey_(client);
-    if (!byClient[key]) {
-      byClient[key] = { client: client, rows: [], lines: [], problems: [], warnings: [] };
+    var title = str_(r.title);
+    var key = clientKey_(client) + '\n' + clientKey_(title);
+    if (!byKey[key]) {
+      byKey[key] = { key: key, client: client, title: title, rows: [], lines: [], problems: [], warnings: [] };
       order.push(key);
     }
-    var inv = byClient[key];
+    var inv = byKey[key];
     var res = invoiceRowLines_(r);
     var where = (r._row ? r._row + '行目 ' : '') + invoiceDay_(r) + ' ' + str_(r.title);
     if (res.problem) inv.problems.push(where + '：' + res.problem);
@@ -129,7 +130,7 @@ function buildInvoices_(rows, ym, attendance, defaultMonths) {
     }
   });
   return order.map(function (key) {
-    var inv = byClient[key];
+    var inv = byKey[key];
     inv.lines.sort(function (a, b) { return a.sales_date < b.sales_date ? -1 : a.sales_date > b.sales_date ? 1 : 0; });
     var subtotal = inv.lines.reduce(function (s, l) { return s + lineAmount_(l); }, 0);
     var tax = Math.floor(subtotal * INVOICE_TAX_RATE / 100);
@@ -138,7 +139,7 @@ function buildInvoices_(rows, ym, attendance, defaultMonths) {
     inv.total = subtotal + tax;
     inv.billingDate = monthEnd_(ym, 0);
     inv.paymentDate = monthEnd_(ym, paymentMonthsFor_(inv.client, defaultMonths));
-    inv.subject = ym.replace(/^(\d{4})\/0?(\d+)$/, '$1年$2月分 ') + INVOICE_SUBJECT;
+    inv.subject = ym.replace(/^(\d{4})\/0?(\d+)$/, '$1年$2月分 ') + (inv.title || INVOICE_SUBJECT);
     return inv;
   });
 }
@@ -340,7 +341,7 @@ function freeeInvoicePreview(ym) {
   var src = invoiceSource_();
   return buildInvoices_(src.rows, ym, src.attendance, getConfig_().paymentMonthsAfter).map(function (inv) {
     return {
-      client: inv.client, subject: inv.subject, billingDate: inv.billingDate, paymentDate: inv.paymentDate,
+      key: inv.key, client: inv.client, title: inv.title, subject: inv.subject, billingDate: inv.billingDate, paymentDate: inv.paymentDate,
       lines: inv.lines.map(function (l) { return { description: l.description, quantity: l.quantity, unit: l.unit, unitPrice: l.unit_price, amount: lineAmount_(l) }; }),
       subtotal: inv.subtotal, tax: inv.tax, total: inv.total, problems: inv.problems, warnings: inv.warnings, rowCount: inv.rows.length
     };
@@ -352,13 +353,13 @@ function freeeCreateInvoices(req) {
   var ym = ymOf_(req && req.ym);
   if (!ym) throw new UserError('月を選んでください');
   var chosen = {};
-  ((req && req.clients) || []).forEach(function (c) { chosen[clientKey_(c)] = true; });
+  ((req && req.keys) || []).forEach(function (k) { chosen[k] = true; });
   return withLock_(function () {
     var sh = sheet_(JOB_SHEET);
     if (headerMap_(sh)['freee請求書番号'] === undefined) ensureSheet_(spreadsheet_(), JOB_SHEET);
     var companyId = freeeCompanyId_();
     var src = invoiceSource_();
-    var invoices = buildInvoices_(src.rows, ym, src.attendance, getConfig_().paymentMonthsAfter).filter(function (inv) { return chosen[clientKey_(inv.client)]; });
+    var invoices = buildInvoices_(src.rows, ym, src.attendance, getConfig_().paymentMonthsAfter).filter(function (inv) { return chosen[inv.key]; });
     if (!invoices.length) throw new UserError('作成する請求書がありません（すでに作成済みかもしれません）。もう一度「内容を確認」を押してください');
     var partners = freeePartners_(companyId);
     return invoices.map(function (inv) {
@@ -371,10 +372,10 @@ function freeeCreateInvoices(req) {
         inv.rows.forEach(function (row) {
           updateCells_(JOB_SHEET, row, { invoice: INVOICE_OPTIONS[1], freeeInvoice: number });
         });
-        return { client: inv.client, ok: true, number: number, total: created.total_amount || inv.total };
+        return { client: inv.client, title: inv.title, ok: true, number: number, total: created.total_amount || inv.total };
       } catch (err) {
-        logError_('freee 請求書：' + inv.client, '', err);
-        return { client: inv.client, ok: false, error: err.message };
+        logError_('freee 請求書：' + inv.client + ' ' + inv.title, '', err);
+        return { client: inv.client, title: inv.title, ok: false, error: err.message };
       }
     });
   });

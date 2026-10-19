@@ -50,7 +50,7 @@
     <h2>請求する月（売上計上月）</h2>
     <select id="month"></select>
     <button id="check">内容を確認</button>
-    <span class="hint">「案件一覧」で「請求書」が「未」の行を、取引先ごとにまとめます。</span>
+    <span class="hint">「案件一覧」で「請求書」が「未」の行を、取引先とタイトルごとに1枚の請求書にまとめます。</span>
     <div id="list"></div>
   </div>
 
@@ -112,7 +112,7 @@ $('companyBtn').onclick = function () {
 };
 
 function selected() {
-  return invoices.filter(function (inv, i) { var cb = $('inv' + i); return cb && cb.checked; }).map(function (inv) { return inv.client; });
+  return invoices.filter(function (inv, i) { var cb = $('inv' + i); return cb && cb.checked; }).map(function (inv) { return inv.key; });
 }
 function updateButton() {
   var n = selected().length;
@@ -133,7 +133,7 @@ $('check').onclick = function () {
       var ok = !inv.problems.length && inv.lines.length;
       return '<div class="card" id="card' + i + '"><div class="card-head">' +
         '<input type="checkbox" id="inv' + i + '"' + (ok ? ' checked' : ' disabled') + '>' +
-        '<strong>' + esc(inv.client) + '</strong><span>合計 ' + yen(inv.total) + '（税込）</span></div>' +
+        '<strong>' + esc(inv.client) + '</strong><span>' + esc(inv.title) + '</span><span>合計 ' + yen(inv.total) + '（税込）</span></div>' +
         '<div class="meta">' + esc(inv.subject) + '／請求日 ' + esc(inv.billingDate) + '／支払期日 ' + esc(inv.paymentDate) + '／' + inv.rowCount + '行</div>' +
         '<table><tr><th>品名</th><th class="n">数量</th><th class="n">単価</th><th class="n">金額</th></tr>' +
         inv.lines.map(function (l) {
@@ -155,9 +155,9 @@ document.addEventListener('change', function (e) {
 });
 
 $('create').onclick = function () {
-  var clients = selected();
-  if (!clients.length) return;
-  if (!confirm(clients.length + '件の請求書を freee に作ります。よろしいですか？\n（freee では「送付待ち」になります）')) return;
+  var keys = selected();
+  if (!keys.length) return;
+  if (!confirm(keys.length + '件の請求書を freee に作ります。よろしいですか？\n（freee では「送付待ち」になります）')) return;
   $('create').disabled = true;
   $('check').disabled = true;
   $('create').textContent = '作成中…';
@@ -168,13 +168,14 @@ $('create').onclick = function () {
     updateButton();
     var ng = results.filter(function (r) { return !r.ok; });
     showMsg(results.map(function (r) {
-      return r.ok ? '✓ ' + r.client + '：請求書番号 ' + r.number + '（' + yen(r.total) + '）' : '✗ ' + r.client + '：' + r.error;
+      var name = r.client + (r.title ? ' ' + r.title : '');
+      return r.ok ? '✓ ' + name + '：請求書番号 ' + r.number + '（' + yen(r.total) + '）' : '✗ ' + name + '：' + r.error;
     }).join('\n') + '\n\n' + (ng.length ? '作れなかった請求書は、理由を直してからもう一度作成してください。' : 'freee の「請求書」で内容を確認して、送付してください。'), ng.length ? 'err' : 'info');
   }).withFailureHandler(function (e) {
     $('check').disabled = false;
     updateButton();
     showMsg(e.message);
-  }).freeeCreateInvoices({ ym: $('month').value, clients: clients });
+  }).freeeCreateInvoices({ ym: $('month').value, keys: keys });
 };
 
 init();

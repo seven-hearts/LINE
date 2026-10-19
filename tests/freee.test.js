@@ -67,8 +67,20 @@ test('取引先ごとにまとめ、対象の月・「未」の行だけ。支�
     ['株式会社Ｓｗｉｔｃｈ', [3, 8], '2026-10-31', '2026-11-30']
   ]);
   assert.deepStrictEqual(invs[0].lines.map((l) => l.sales_date), ['2026-10-01', '2026-10-01', '2026-10-08', '2026-10-08']);
-  assert.strictEqual(invs[0].subject, '2026年10月分 イベント運営業務');
+  assert.strictEqual(invs[0].subject, '2026年10月分 展示会運営');
   assert.strictEqual(plain(ctx.buildInvoices_([row({ salesMonth: '2026/12', date: '2026/12/01' })], '2026/12', {}))[0].paymentDate, '2027-02-28');
+});
+
+test('同じ取引先でもタイトルが違えば別の請求書', () => {
+  const invs = plain(ctx.buildInvoices_([
+    row({ _row: 2 }), row({ _row: 3, title: '物産展' }), row({ _row: 4, date: '2026/10/09' }), row({ _row: 5, title: '' })
+  ], '2026/10', {}));
+  assert.deepStrictEqual(invs.map((i) => [i.client, i.title, i.rows, i.subject]), [
+    ['株式会社テスト', '展示会運営', [2, 4], '2026年10月分 展示会運営'],
+    ['株式会社テスト', '物産展', [3], '2026年10月分 物産展'],
+    ['株式会社テスト', '', [5], '2026年10月分 イベント運営業務']
+  ]);
+  assert.strictEqual(new Set(invs.map((i) => i.key)).size, 3);
 });
 
 test('入金予定月（取り込み時）も取引先ごとの支払期日に合わせる', () => {
