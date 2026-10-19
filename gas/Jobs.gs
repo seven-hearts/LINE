@@ -16,6 +16,11 @@ var APPLY_STATUS = {
   CANCELLED: '辞退'
 };
 
+/** 「案件応募」で、実働時間・給与額の計算に使う列（ここを編集すると計算し直す） */
+var PAY_INPUT_LABELS = ['勤務ステータス', '勤務開始時間', '勤務終了時間', '休憩時間', '給与形態', '単価'];
+/** 実際の勤務・給与の列（「終了予定時間」の右に並べる） */
+var APPLY_WORK_LABELS = ['勤務開始時間', '勤務終了時間', '休憩時間', '実働時間', '給与形態', '単価', '給与額'];
+
 /** 「案件応募」の勤務ステータス（状態の隣の列）。確定した人の当日までの進み具合 */
 var WORK_STATUS = {
   DETAIL_SENT: '詳細送付済',       // 詳細連絡を送ると自動
@@ -298,6 +303,44 @@ function paymentMonthsFor_(client, defaultMonths) {
     if (clientKey_(name) === key) return PAYMENT_TERM_EXCEPTIONS[name];
   }
   return isNum_(defaultMonths) ? defaultMonths : DEFAULT_PAYMENT_MONTHS;
+}
+
+/** 「時給1,200円」「日給 10000円」→ { unit: '時給', rate: 1200 }（読めなければ null） */
+function staffPayTerms_(text) {
+  var s = str_(text).replace(/[０-９，]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 0xFEE0); });
+  var m = /(時給|日給)\D*?([\d,]+)/.exec(s);
+  if (!m) return null;
+  return { unit: m[1], rate: +m[2].replace(/,/g, '') };
+}
+
+/** 休憩時間 → 時間数。数字は時間（12より大きければ分とみなす）、「45分」「1時間30分」「1:00」も読む。空欄は0、読めなければ null */
+function breakHours_(v) {
+  if (v === '' || v === null || v === undefined) return 0;
+  if (Object.prototype.toString.call(v) === '[object Date]') return round2_(v.getHours() + v.getMinutes() / 60);
+  if (isNum_(v)) return v > 12 ? round2_(v / 60) : v;
+  var s = str_(v).replace(/[０-９：．]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 0xFEE0); });
+  var m;
+  if ((m = /^(\d{1,2}):(\d{2})$/.exec(s))) return round2_(+m[1] + +m[2] / 60);
+  if ((m = /^(?:(\d+(?:\.\d+)?)\s*時間)?\s*(?:(\d+)\s*分)?$/.exec(s)) && (m[1] || m[2])) return round2_((+m[1] || 0) + (+m[2] || 0) / 60);
+  var n = toNum_(s);
+  return n === null ? null : (n > 12 ? round2_(n / 60) : n);
+}
+
+/**
+ * 「案件応募」の1行 → 実働時間と給与額（わからなければ ''）。
+ * 実働時間 = 勤務終了 − 勤務開始 − 休憩（日をまたぐ勤務も）。給与額は時給なら 単価 × 実働時間（1円未満四捨五入）、日給なら 単価。
+ * 欠勤の人は0円。
+ */
+function workPay_(app) {
+  var span = spanHours_(app.actualStart, app.actualEnd);
+  var brk = breakHours_(app.actualBreak);
+  var hours = span !== null && brk !== null ? round2_(Math.max(0, span - brk)) : '';
+  var rate = toNum_(app.payRate);
+  var pay = '';
+  if (ABSENT_STATUSES.indexOf(app.workStatus) >= 0) pay = 0;
+  else if (rate !== null && app.payUnit === '時給' && hours !== '') pay = Math.round(rate * hours);
+  else if (rate !== null && app.payUnit === '日給') pay = rate;
+  return { actualHours: hours, pay: pay };
 }
 
 function unitOf_(payBasis) {

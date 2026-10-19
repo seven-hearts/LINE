@@ -746,11 +746,14 @@ test('以前の「案件応募」：G列「時間」を「開始時間」「終�
     getMaxRows: () => grid.length
   };
   c.migrateApplyColumns_(sheet);
-  assert.deepStrictEqual(grid[0], ['応募日時', '状態', '勤務ステータス', '枠ID', '案件ID', 'タイトル', '日程', '開始時間', '終了時間', '氏名']);
-  assert.deepStrictEqual(grid[1], ['x', '確定', '出発確認済', 'A', 'a', 't', '2026/10/21', '08:30', '15:30', '山田']);
+  const work = ['勤務開始時間', '勤務終了時間', '休憩時間', '実働時間', '給与形態', '単価', '給与額'];
+  assert.deepStrictEqual(grid[0], ['応募日時', '状態', '勤務ステータス', '枠ID', '案件ID', 'タイトル', '日程', '開始予定時間', '終了予定時間', ...work, '氏名']);
+  assert.deepStrictEqual(grid[1], ['x', '確定', '出発確認済', 'A', 'a', 't', '2026/10/21', '08:30', '15:30', '', '', '', '', '', '', '', '山田']);
   assert.deepStrictEqual(grid[2].slice(1, 3), ['見送り', '']);
   c.migrateApplyColumns_(sheet); // 2回目は何もしない
-  assert.strictEqual(grid[0].length, 10);
+  assert.strictEqual(grid[0].length, 17);
+  // 新しく作るシートも同じ並び（H列・I列が予定、その右に実際の勤務と給与）
+  assert.deepStrictEqual(plain(c.COLUMNS[c.APPLY_SHEET].map((x) => x[1])).slice(6, 16), ['日程', '開始予定時間', '終了予定時間', ...work]);
   // 選択肢：状態は4つ、勤務ステータスは8つ
   assert.deepStrictEqual(Object.values(plain(c.APPLY_STATUS)), ['応募', '確定', '見送り', '辞退']);
   assert.deepStrictEqual(Object.values(plain(c.WORK_STATUS)),
@@ -977,4 +980,25 @@ test('「案件応募」で二重に確定にすると、元に戻して管理�
   assert.strictEqual(rows[2].status, '確定');
   assert.strictEqual(pushes.length, 1);
   assert.strictEqual(pushes[0][0], 'U2');
+});
+
+test('案件応募：実働時間と給与額の計算', () => {
+  const pay = (o) => plain(ctx.workPay_(Object.assign({ actualStart: '09:00', actualEnd: '18:00', actualBreak: 1, payUnit: '時給', payRate: '1200', workStatus: '出勤' }, o)));
+  assert.deepStrictEqual(pay({}), { actualHours: 8, pay: 9600 });
+  assert.deepStrictEqual(pay({ actualBreak: '45分' }), { actualHours: 8.25, pay: 9900 });
+  assert.deepStrictEqual(pay({ actualBreak: '1:30' }), { actualHours: 7.5, pay: 9000 });
+  assert.deepStrictEqual(pay({ actualBreak: 60 }), { actualHours: 8, pay: 9600 }); // 12より大きい数字は分
+  assert.deepStrictEqual(pay({ actualBreak: '' }), { actualHours: 9, pay: 10800 });
+  assert.deepStrictEqual(pay({ actualStart: '22:00', actualEnd: '5:00', actualBreak: 0 }), { actualHours: 7, pay: 8400 }); // 日をまたぐ
+  assert.deepStrictEqual(pay({ actualEnd: '18:10', payRate: '1,155' }), { actualHours: 8.17, pay: 9436 });
+  assert.deepStrictEqual(pay({ actualEnd: '' }), { actualHours: '', pay: '' });
+  assert.deepStrictEqual(pay({ payUnit: '日給', payRate: 10000, actualEnd: '' }), { actualHours: '', pay: 10000 });
+  assert.deepStrictEqual(pay({ workStatus: '無断欠勤' }), { actualHours: 8, pay: 0 });
+  assert.deepStrictEqual(pay({ actualBreak: 'なし?' }), { actualHours: '', pay: '' });
+});
+
+test('スタッフ向け給与から給与形態と単価を読む', () => {
+  assert.deepStrictEqual(plain(ctx.staffPayTerms_('時給1,200円')), { unit: '時給', rate: 1200 });
+  assert.deepStrictEqual(plain(ctx.staffPayTerms_('日給 １０，０００円（交通費別）')), { unit: '日給', rate: 10000 });
+  assert.strictEqual(ctx.staffPayTerms_('要相談'), null);
 });

@@ -41,7 +41,12 @@ function setupJobSheets_(ss) {
     SpreadsheetApp.newDataValidation().requireValueInList(workValues, true).setAllowInvalid(false).build());
   apply.getRange(2, headerMap_(apply)['状態'] + 1, apply.getMaxRows() - 1, 1).setDataValidation(
     SpreadsheetApp.newDataValidation().requireValueInList(statusValues, true).setAllowInvalid(false).build());
-  apply.getRange(2, headerMap_(apply)['交通費（往復）'] + 1, apply.getMaxRows() - 1, 1).setNumberFormat('¥#,##0');
+  var ah = headerMap_(apply);
+  var acol = function (label) { return apply.getRange(2, ah[label] + 1, apply.getMaxRows() - 1, 1); };
+  ['交通費（往復）', '単価', '給与額'].forEach(function (l) { acol(l).setNumberFormat('¥#,##0'); });
+  ['休憩時間', '実働時間'].forEach(function (l) { acol(l).setNumberFormat('0.##'); });
+  acol('給与形態').setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(UNITS, true).build());
+  fillApplyPayTerms_();
 }
 
 /**
@@ -612,6 +617,7 @@ function onJobPostback_(ev, userId, params) {
     appendRecords_(APPLY_SHEET, [{
       appliedAt: now_(), status: APPLY_STATUS.APPLIED, slotId: s.slotId, caseId: s.caseId, title: s.title,
       date: s.date, start: s.start, end: s.end,
+      payUnit: (staffPayTerms_(s.staffPay) || {}).unit || '', payRate: (staffPayTerms_(s.staffPay) || {}).rate || '',
       name: fullName_(staff), phone: staff.phone, userId: userId
     }]);
     var count = apps.filter(function (x) { return x.rec.slotId === s.slotId && x.rec.status !== APPLY_STATUS.CANCELLED; }).length + 1;
@@ -622,10 +628,11 @@ function onJobPostback_(ev, userId, params) {
   if (reply.indexOf('応募を受け付けました') === 0) notifyAdmin_('案件への応募', fullName_(staff));
 }
 
-/** 「案件応募」の状態を変えたとき（onStatusEdit から）。確定・見送りを本人に知らせる */
+/** 「案件応募」を編集したとき（onStatusEdit から）。実働時間・給与額を計算し、確定・見送りを本人に知らせる */
 function onApplyEdit_(e) {
   var sh = e.range.getSheet();
   var header = headerMap_(sh);
+  updateWorkPay_(sh, header, e.range);
   var statusCol = header['状態'] + 1;
   if (e.range.getColumn() > statusCol || e.range.getLastColumn() < statusCol) return;
   var firstRow = Math.max(e.range.getRow(), 2);
@@ -665,6 +672,34 @@ function onApplyEdit_(e) {
       console.error('onApplyEdit failed', app.userId, err && err.stack || err);
       logError_('案件応募：' + app.status, app.userId, err);
     }
+  });
+}
+
+/** 勤務時間・休憩・給与形態・単価を編集した行の、実働時間と給与額を計算し直す */
+function updateWorkPay_(sh, header, range) {
+  if (header['給与額'] === undefined || header['実働時間'] === undefined) return;
+  var from = range.getColumn(), to = range.getLastColumn();
+  var touched = PAY_INPUT_LABELS.some(function (l) { return header[l] !== undefined && header[l] + 1 >= from && header[l] + 1 <= to; });
+  if (!touched) return;
+  var firstRow = Math.max(range.getRow(), 2), lastRow = range.getLastRow();
+  if (lastRow < firstRow) return;
+  var values = sh.getRange(firstRow, 1, lastRow - firstRow + 1, sh.getLastColumn()).getValues();
+  values.forEach(function (v, k) {
+    var r = workPay_(rowToRecord_(APPLY_SHEET, header, v));
+    sh.getRange(firstRow + k, header['実働時間'] + 1).setValue(r.actualHours);
+    sh.getRange(firstRow + k, header['給与額'] + 1).setValue(r.pay);
+  });
+}
+
+/** setup から：給与形態・単価が空欄の応募に、「案件一覧」のスタッフ向け給与を入れる */
+function fillApplyPayTerms_() {
+  var slots = {};
+  readAll_(JOB_SHEET).forEach(function (x) { if (x.rec.slotId) slots[x.rec.slotId] = x.rec; });
+  readAll_(APPLY_SHEET).forEach(function (x) {
+    var a = x.rec;
+    if (str_(a.payUnit) || str_(a.payRate) || !slots[a.slotId]) return;
+    var t = staffPayTerms_(slots[a.slotId].staffPay);
+    if (t) updateCells_(APPLY_SHEET, x.row, { payUnit: t.unit, payRate: t.rate });
   });
 }
 
@@ -867,6 +902,25 @@ function migrateApplyColumns_(sh) {
   splitColumn_(sh, '状態', '状態', '勤務ステータス', function (v) {
     return applyStatusSplit_(v);
   });
+  // 予定の時間と実際の時間を区別する：「開始時間」「終了時間」→「開始予定時間」「終了予定時間」
+  [['開始時間', '開始予定時間'], ['終了時間', '終了予定時間']].forEach(function (p) {
+    var h = headerMap_(sh);
+    if (h[p[0]] !== undefined && h[p[1]] === undefined) sh.getRange(1, h[p[0]] + 1, 1, 1).setValues([[p[1]]]);
+  });
+  // 実際の勤務・給与の列を「終了予定時間」の右に足す
+  var prev = '終了予定時間';
+  APPLY_WORK_LABELS.forEach(function (label) {
+    var h = headerMap_(sh);
+    if (h[prev] === undefined) return;
+    if (h[label] === undefined) {
+      var col = h[prev] + 1;
+      sh.insertColumnAfter(col);
+      // 入れた列は左の列の入力規則・書式を引き継ぐため、いったん外す（setup で付け直す）
+      if (sh.getMaxRows() > 1) sh.getRange(2, col + 1, sh.getMaxRows() - 1, 1).clearDataValidations();
+      sh.getRange(1, col + 1, 1, 1).setValues([[label]]);
+    }
+    prev = label;
+  });
 }
 
 /** 「案件応募」の日程・開始時間・終了時間を「案件一覧」に合わせる（案件一覧を編集したとき・1分ごと） */
@@ -895,7 +949,12 @@ function runJobScheduler_(now) {
   if (!apply) return;
   var header = headerMap_(apply);
   // setup を実行し直していない（列がない）と送信の記録が残せず、1分ごとに送り続けてしまうため何もしない
-  var needed = ['勤務ステータス', '開始時間', '出発確認の送信日時', '担当者への通知日時', '終了確認の送信日時', '終了報告の日時'];
+  // 予定の時間の列名が以前のまま（setup 前）なら、ここで直す
+  if (header['開始時間'] !== undefined && header['開始予定時間'] === undefined) {
+    migrateApplyColumns_(apply);
+    header = headerMap_(apply);
+  }
+  var needed = ['勤務ステータス', '開始予定時間', '出発確認の送信日時', '担当者への通知日時', '終了確認の送信日時', '終了報告の日時'];
   if (needed.some(function (l) { return header[l] === undefined; })) return;
   syncApplyTimes_();
   readAll_(APPLY_SHEET).forEach(function (x) {
