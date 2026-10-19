@@ -90,10 +90,31 @@ test('入金予定月（取り込み時）も取引先ごとの支払期日に�
   assert.strictEqual(ctx.paymentMonthsFor_('株式会社switch', 3), 1);
 });
 
-test('案件応募の出勤人数とシートの人数が違えば知らせる', () => {
-  const [inv] = plain(ctx.buildInvoices_([row()], '2026/10', { 'A-1': 2 }));
-  assert.match(inv.warnings[0], /シートの人数は3名、案件応募で出勤（確定）の人は2名/);
-  assert.deepStrictEqual(plain(ctx.buildInvoices_([row()], '2026/10', { 'A-1': 3 }))[0].warnings, []);
+test('案件応募の実際の勤務時間（休憩を含む）と人数で請求する', () => {
+  const w = (name, actualStart, actualEnd) => ({ name, actualStart, actualEnd });
+  // 全員同じ時間
+  let [inv] = plain(ctx.buildInvoices_([row()], '2026/10', { 'A-1': [w('山田', '8:30', '18:00'), w('佐藤', '8:30', '18:00')] }));
+  assert.strictEqual(inv.lines[0].description, '10/8(木) 展示会運営 08:30〜18:00（9.5時間×2名）');
+  assert.strictEqual(inv.lines[0].quantity, 19);
+  assert.strictEqual(inv.lines[1].description, '10/8(木) 交通費（2名）');
+  assert.match(inv.warnings[0], /出勤（確定）の2名で計算しています（案件一覧の人数は3名）/);
+  // 人によって違う・未入力の人は予定の時間（08:30〜17:30 = 9時間）
+  [inv] = plain(ctx.buildInvoices_([row()], '2026/10', { 'A-1': [w('山田', '8:30', '18:00'), w('佐藤', '9:00', '17:00'), w('鈴木', '', '')] }));
+  assert.strictEqual(inv.lines[0].description, '10/8(木) 展示会運営（3名・合計26.5時間）');
+  assert.strictEqual(inv.lines[0].quantity, 26.5);
+  assert.deepStrictEqual(inv.warnings, ['2行目 10/8(木) 展示会運営：勤務開始・終了時間が未入力のため予定の時間で計算：鈴木']);
+  // 時間保証は1人ずつ
+  [inv] = plain(ctx.buildInvoices_([row({ notes: '5時間保証', headcount: 1 })], '2026/10', { 'A-1': [w('山田', '9:00', '12:00')] }));
+  assert.strictEqual(inv.lines[0].quantity, 5);
+  // 日給は出勤した人数
+  [inv] = plain(ctx.buildInvoices_([row({ unit: '日給', unitPrice: 12000, transport: '' })], '2026/10', { 'A-1': [w('山田', '', ''), w('佐藤', '', '')] }));
+  assert.deepStrictEqual(inv.lines.map((l) => [l.quantity, l.unit_price]), [[2, 12000]]);
+  // 全員欠勤なら請求しない。確定した人がいない枠は、シートの人数と予定の時間
+  [inv] = plain(ctx.buildInvoices_([row()], '2026/10', { 'A-1': [] }));
+  assert.strictEqual(inv.lines.length, 0);
+  [inv] = plain(ctx.buildInvoices_([row()], '2026/10', { 'B-1': [w('山田', '8:30', '18:00')] }));
+  assert.strictEqual(inv.lines[0].quantity, 27);
+  assert.deepStrictEqual(inv.warnings, []);
 });
 
 test('freee に送る形（税抜・外税・御中）と、取引先の照合', () => {

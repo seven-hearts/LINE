@@ -3,6 +3,7 @@
  *
  * - メニュー「freee に請求書を作る」→ 月を選ぶ → 取引先・タイトルごとの内容を確認 → freee に「送付待ち」の請求書を作成
  * - 請求額 = 単価 × 時間（開始〜終了。休憩時間を含む）× 人数。日給は 単価 × 人数
+ *   「案件応募」に確定した人がいる枠は、その人たちの実際の勤務開始〜終了時間（未入力の人は予定の時間）と人数で計算する
  * - 交通費・食費は、明細に別の行で入れる（1人あたりの金額 × 人数）
  * - 末締め。支払期日は取引先ごとの決まり（PAYMENT_TERMS）
  * - 作成した行は「請求書」を「発行済」にし、「freee請求書番号」を入れる（二重に作らない）
@@ -39,11 +40,28 @@ function monthEnd_(ym, months) {
 }
 
 /** 時給で請求する時間：開始〜終了（休憩時間を含む）。備考に「○時間保証」があれば、それより短くしない */
-function invoiceHours_(row) {
-  var h = spanHours_(row.start, row.end);
+function invoiceHours_(row, start, end) {
+  var h = spanHours_(start === undefined ? row.start : start, end === undefined ? row.end : end);
   if (h === null) return null;
   var m = /(\d+(?:\.\d+)?)\s*時間保証/.exec(str_(row.notes));
   return m ? Math.max(h, +m[1]) : h;
+}
+
+/**
+ * 実際に働いた人ごとの請求時間。勤務開始・終了時間が入っていない人は予定の時間で計算する。
+ * @param {Array} workers [{ name, actualStart, actualEnd }]（確定・欠勤以外）
+ * @return {{hours: Array<number>, planned: Array<string>, times: Array<string>}}
+ */
+function workerHours_(row, workers) {
+  var res = { hours: [], planned: [], times: [] };
+  workers.forEach(function (w) {
+    var actual = spanHours_(w.actualStart, w.actualEnd) !== null;
+    var s = actual ? w.actualStart : row.start, e = actual ? w.actualEnd : row.end;
+    if (!actual) res.planned.push(w.name || '（名前なし）');
+    res.hours.push(invoiceHours_(row, s, e));
+    res.times.push(normalizeTime_(s) + '〜' + normalizeTime_(e));
+  });
+  return res;
 }
 
 /** 「10/8(木)」 */
@@ -58,27 +76,42 @@ function round3_(n) {
 
 /**
  * 1行（1日・1時間帯）→ 請求書の明細。足りない情報があれば problem に理由を入れる（推測しない）。
- * @return {{lines: Array, problem: string}}
+ * @param {Array=} workers 「案件応募」で確定した人（欠勤を除く）。undefined なら、シートの人数と予定の時間で計算する
+ * @return {{lines: Array, problem: string, warnings: Array<string>}}
  */
-function invoiceRowLines_(row) {
+function invoiceRowLines_(row, workers) {
   var d = parseYmd_(row.date);
-  var n = toNum_(row.headcount);
+  var n = workers ? workers.length : toNum_(row.headcount);
+  var warnings = [];
+  var sheetN = toNum_(row.headcount);
+  if (workers && sheetN !== null && sheetN !== n) {
+    warnings.push('案件応募で出勤（確定）の' + n + '名で計算しています（案件一覧の人数は' + sheetN + '名）');
+  }
   var price = toNum_(row.unitPrice);
   var missing = [];
   if (!d) missing.push('日程');
   if (n === null) missing.push('人数');
   if (price === null) missing.push('単価');
   if (row.unit !== '時給' && row.unit !== '日給') missing.push('単位（時給・日給）');
-  var hours = row.unit === '時給' ? invoiceHours_(row) : null;
-  if (row.unit === '時給' && hours === null) missing.push('開始時間・終了時間');
-  if (missing.length) return { lines: [], problem: missing.join('・') + 'が入っていません' };
-  if (n <= 0) return { lines: [], problem: '' }; // 0人の日は請求しない
+  var wh = workers && row.unit === '時給' ? workerHours_(row, workers) : null;
+  var hours = row.unit === '時給' && !wh ? invoiceHours_(row) : null;
+  if (row.unit === '時給' && (wh ? wh.hours.indexOf(null) >= 0 : hours === null)) missing.push('開始時間・終了時間');
+  if (missing.length) return { lines: [], problem: missing.join('・') + 'が入っていません', warnings: warnings };
+  if (n <= 0) return { lines: [], problem: '', warnings: warnings }; // 0人の日は請求しない
+  if (wh && wh.planned.length) warnings.push('勤務開始・終了時間が未入力のため予定の時間で計算：' + wh.planned.join('、'));
 
   var day = invoiceDay_(row);
   var date = d.getFullYear() + '-' + pad2_(d.getMonth() + 1) + '-' + pad2_(d.getDate());
   var title = str_(row.title) + (row.role && row.role !== DEFAULT_ROLE ? '（' + row.role + '）' : '');
   var lines = [];
-  if (row.unit === '時給') {
+  if (wh) {
+    var total = wh.hours.reduce(function (a, b) { return a + b; }, 0);
+    var same = wh.hours.every(function (h, i) { return h === wh.hours[0] && wh.times[i] === wh.times[0]; });
+    lines.push({
+      description: day + ' ' + title + (same ? ' ' + wh.times[0] + '（' + wh.hours[0] + '時間×' + n + '名）' : '（' + n + '名・合計' + round3_(total) + '時間）'),
+      sales_date: date, quantity: round3_(total), unit: '時間', unit_price: price
+    });
+  } else if (row.unit === '時給') {
     lines.push({
       description: day + ' ' + title + ' ' + normalizeTime_(row.start) + '〜' + normalizeTime_(row.end) + '（' + hours + '時間×' + n + '名）',
       sales_date: date, quantity: round3_(hours * n), unit: '時間', unit_price: price
@@ -90,7 +123,7 @@ function invoiceRowLines_(row) {
   if (transport) lines.push({ description: day + ' 交通費（' + n + '名）', sales_date: date, quantity: n, unit: '名', unit_price: transport });
   var meal = toNum_(row.meal);
   if (meal) lines.push({ description: day + ' 食費（' + n + '名）', sales_date: date, quantity: n, unit: '名', unit_price: meal });
-  return { lines: lines, problem: '' };
+  return { lines: lines, problem: '', warnings: warnings };
 }
 
 function lineAmount_(l) {
@@ -101,9 +134,9 @@ function lineAmount_(l) {
  * その月に請求する行を、取引先・タイトルごとの請求書にまとめる（件名は「2026年10月分 タイトル」）。
  * @param {Array} rows 「案件一覧」の行（_row にシートの行番号）
  * @param {string} ym 「2026/10」（売上計上月）
- * @param {Object} attendance 枠ID → 出勤した人数（「案件応募」で確定・欠勤以外。応募がない枠は入れない）
+ * @param {Object} workers 枠ID → 実際に働いた人の一覧（「案件応募」で確定・欠勤以外。確定した人がいない枠は入れない）
  */
-function buildInvoices_(rows, ym, attendance, defaultMonths) {
+function buildInvoices_(rows, ym, workers, defaultMonths) {
   var byKey = {};
   var order = [];
   rows.forEach(function (r) {
@@ -118,16 +151,13 @@ function buildInvoices_(rows, ym, attendance, defaultMonths) {
       order.push(key);
     }
     var inv = byKey[key];
-    var res = invoiceRowLines_(r);
+    var res = invoiceRowLines_(r, workers && r.slotId ? workers[r.slotId] : undefined);
     var where = (r._row ? r._row + '行目 ' : '') + invoiceDay_(r) + ' ' + str_(r.title);
     if (res.problem) inv.problems.push(where + '：' + res.problem);
     if (!str_(r.client)) inv.problems.push(where + '：取引先名が入っていません');
     inv.rows.push(r._row);
     inv.lines = inv.lines.concat(res.lines);
-    var n = toNum_(r.headcount);
-    if (attendance && r.slotId && attendance[r.slotId] !== undefined && n !== null && attendance[r.slotId] !== n) {
-      inv.warnings.push(where + '：シートの人数は' + n + '名、案件応募で出勤（確定）の人は' + attendance[r.slotId] + '名です');
-    }
+    res.warnings.forEach(function (w) { inv.warnings.push(where + '：' + w); });
   });
   return order.map(function (key) {
     var inv = byKey[key];
@@ -271,17 +301,17 @@ function showFreeeInvoice() {
   SpreadsheetApp.getUi().showModalDialog(html, 'freee に請求書を作る');
 }
 
-/** 「案件一覧」の行と、出勤した人数（枠IDごと） */
+/** 「案件一覧」の行と、実際に働いた人（枠IDごと。「案件応募」で確定し、欠勤でない人） */
 function invoiceSource_() {
   var rows = readAll_(JOB_SHEET).map(function (x) { x.rec._row = x.row; return x.rec; });
-  var attendance = {};
+  var workers = {};
   readAll_(APPLY_SHEET).forEach(function (x) {
     var a = x.rec;
     if (a.status !== APPLY_STATUS.CONFIRMED || !a.slotId) return;
-    if (attendance[a.slotId] === undefined) attendance[a.slotId] = 0;
-    if (ABSENT_STATUSES.indexOf(a.workStatus) < 0) attendance[a.slotId]++;
+    if (!workers[a.slotId]) workers[a.slotId] = [];
+    if (ABSENT_STATUSES.indexOf(a.workStatus) < 0) workers[a.slotId].push({ name: a.name, actualStart: a.actualStart, actualEnd: a.actualEnd });
   });
-  return { rows: rows, attendance: attendance };
+  return { rows: rows, workers: workers };
 }
 
 function freeeInvoiceInit() {
@@ -339,7 +369,7 @@ function freeeInvoicePreview(ym) {
   ym = ymOf_(ym);
   if (!ym) throw new UserError('月を選んでください');
   var src = invoiceSource_();
-  return buildInvoices_(src.rows, ym, src.attendance, getConfig_().paymentMonthsAfter).map(function (inv) {
+  return buildInvoices_(src.rows, ym, src.workers, getConfig_().paymentMonthsAfter).map(function (inv) {
     return {
       key: inv.key, client: inv.client, title: inv.title, subject: inv.subject, billingDate: inv.billingDate, paymentDate: inv.paymentDate,
       lines: inv.lines.map(function (l) { return { description: l.description, quantity: l.quantity, unit: l.unit, unitPrice: l.unit_price, amount: lineAmount_(l) }; }),
@@ -359,7 +389,7 @@ function freeeCreateInvoices(req) {
     if (headerMap_(sh)['freee請求書番号'] === undefined) ensureSheet_(spreadsheet_(), JOB_SHEET);
     var companyId = freeeCompanyId_();
     var src = invoiceSource_();
-    var invoices = buildInvoices_(src.rows, ym, src.attendance, getConfig_().paymentMonthsAfter).filter(function (inv) { return chosen[inv.key]; });
+    var invoices = buildInvoices_(src.rows, ym, src.workers, getConfig_().paymentMonthsAfter).filter(function (inv) { return chosen[inv.key]; });
     if (!invoices.length) throw new UserError('作成する請求書がありません（すでに作成済みかもしれません）。もう一度「内容を確認」を押してください');
     var partners = freeePartners_(companyId);
     return invoices.map(function (inv) {

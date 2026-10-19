@@ -142,7 +142,7 @@ $('check').onclick = function () {
         '<tr class="sum"><td colspan="3" class="n">小計（税抜）</td><td class="n">' + yen(inv.subtotal) + '</td></tr>' +
         '<tr class="sum"><td colspan="3" class="n">消費税（10%）</td><td class="n">' + yen(inv.tax) + '</td></tr></table>' +
         (inv.problems.length ? '<div class="problem">シートを直してから、もう一度「内容を確認」を押してください：\n' + esc(inv.problems.join('\n')) + '</div>' : '') +
-        (inv.warnings.length ? '<div class="warn">人数を確認してください（請求はシートの「人数」で計算しています）：\n' + esc(inv.warnings.join('\n')) + '</div>' : '') +
+        (inv.warnings.length ? '<div class="warn">確認してください：\n' + esc(inv.warnings.join('\n')) + '</div>' : '') +
         '</div>';
     }).join('');
     updateButton();
