@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html>
+<head>
+<base target="_top">
+<meta charset="utf-8">
+<style>
+  :root { --brand: #381E19; --line: #ddd; --muted: #777; --bg: #faf7f5; --err: #c62828; --warn: #8a5a00; }
+  * { box-sizing: border-box; }
+  body { font-family: "Hiragino Sans", "Noto Sans JP", sans-serif; font-size: 13px; margin: 0; padding: 12px 16px 90px; color: #222; }
+  h2 { font-size: 14px; margin: 14px 0 8px; color: var(--brand); }
+  input[type=text], select { font: inherit; padding: 5px 6px; border: 1px solid var(--line); border-radius: 4px; }
+  button { font: inherit; padding: 7px 16px; border-radius: 4px; border: 1px solid var(--brand); background: #fff; color: var(--brand); cursor: pointer; }
+  button.primary { background: var(--brand); color: #fff; }
+  button:disabled { opacity: .5; cursor: default; }
+  a.btn { display: inline-block; padding: 7px 16px; border-radius: 4px; background: var(--brand); color: #fff; text-decoration: none; }
+  .msg { margin: 8px 0; padding: 8px 10px; border-radius: 4px; display: none; white-space: pre-wrap; }
+  .msg.err { display: block; background: #fdecea; color: var(--err); }
+  .msg.info { display: block; background: #eef6ee; color: #2e7d32; }
+  .hint { color: var(--muted); font-size: 11px; }
+  .step { margin: 8px 0; }
+  .card { border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; margin-bottom: 10px; background: #fff; }
+  .card.on { border-color: var(--brand); background: var(--bg); }
+  .card-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+  .card-head strong { color: var(--brand); font-size: 14px; }
+  .meta { color: var(--muted); font-size: 11px; margin: 4px 0 6px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th, td { padding: 4px 6px; border-bottom: 1px solid #f0ebe7; text-align: left; }
+  td.n, th.n { text-align: right; white-space: nowrap; }
+  tr.sum td { border-bottom: none; font-weight: bold; }
+  .problem { color: var(--err); font-size: 12px; margin-top: 6px; white-space: pre-wrap; }
+  .warn { color: var(--warn); font-size: 12px; margin-top: 6px; white-space: pre-wrap; }
+  .bar { position: fixed; left: 0; right: 0; bottom: 0; padding: 10px 16px; background: #fff; border-top: 1px solid var(--line); display: flex; gap: 8px; align-items: center; }
+</style>
+</head>
+<body>
+  <div id="msg" class="msg"></div>
+
+  <div id="connect" style="display:none">
+    <h2>freee と連携する（最初に1回だけ）</h2>
+    <div class="step">① 下のボタンで freee を開き、ログインして「許可する」を押します。<br>
+      <a class="btn" id="authLink" target="_blank" rel="noopener">freee を開く</a></div>
+    <div class="step">② freee の画面に表示された「認可コード」をコピーして、ここに貼り付けます。<br>
+      <input type="text" id="code" style="width:420px" placeholder="認可コード"> <button id="connectBtn" class="primary">連携する</button></div>
+    <div class="step" id="companies" style="display:none">③ 請求書を作る事業所を選んでください：
+      <select id="company"></select> <button id="companyBtn" class="primary">この事業所にする</button></div>
+  </div>
+
+  <div id="main" style="display:none">
+    <div class="hint" id="conn"></div>
+    <h2>請求する月（売上計上月）</h2>
+    <select id="month"></select>
+    <button id="check">内容を確認</button>
+    <span class="hint">「案件一覧」で「請求書」が「未」の行を、取引先ごとにまとめます。</span>
+    <div id="list"></div>
+  </div>
+
+  <div class="bar">
+    <button id="create" class="primary" disabled>freee に請求書を作る</button>
+    <button onclick="google.script.host.close()">閉じる</button>
+    <span class="hint">freee には「送付待ち」で作ります。freee で内容を確認してから送付してください。</span>
+  </div>
+
+<script>
+var invoices = [];
+function $(id) { return document.getElementById(id); }
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+function yen(n) { return '¥' + Math.round(n).toLocaleString('ja-JP'); }
+function showMsg(text, kind) { var m = $('msg'); m.textContent = text; m.className = 'msg ' + (kind || 'err'); }
+function run(name, arg, ok) {
+  google.script.run.withSuccessHandler(ok).withFailureHandler(function (e) { showMsg(e.message); })[name](arg);
+}
+
+function init() {
+  run('freeeInvoiceInit', undefined, function (r) {
+    if (!r.connected) {
+      $('connect').style.display = 'block';
+      $('main').style.display = 'none';
+      if (r.authUrl) $('authLink').href = r.authUrl;
+      else showMsg('スクリプト プロパティに FREEE_CLIENT_ID と FREEE_CLIENT_SECRET を入れてから、もう一度開いてください（README の「freee に請求書を作る」参照）。');
+      return;
+    }
+    $('connect').style.display = 'none';
+    $('main').style.display = 'block';
+    $('conn').innerHTML = 'freee の事業所：' + esc(r.companyName) + '　<a href="#" id="reconnect">連携し直す</a>';
+    $('reconnect').onclick = function (e) { e.preventDefault(); $('connect').style.display = 'block'; if (r.authUrl) $('authLink').href = r.authUrl; };
+    $('month').innerHTML = r.months.length ? r.months.map(function (m) {
+      return '<option' + (m === r.defaultMonth ? ' selected' : '') + '>' + esc(m) + '</option>';
+    }).join('') : '<option value="">（請求書が「未」の行がありません）</option>';
+  });
+}
+
+$('connectBtn').onclick = function () {
+  $('connectBtn').disabled = true;
+  google.script.run.withSuccessHandler(function (r) {
+    $('connectBtn').disabled = false;
+    if (r.companies) {
+      $('companies').style.display = 'block';
+      $('company').innerHTML = r.companies.map(function (c) { return '<option value="' + esc(c.id) + '">' + esc(c.name) + '</option>'; }).join('');
+      return;
+    }
+    showMsg('freee と連携しました（' + r.companyName + '）', 'info');
+    init();
+  }).withFailureHandler(function (e) { $('connectBtn').disabled = false; showMsg(e.message); }).freeeConnect($('code').value);
+};
+$('companyBtn').onclick = function () {
+  var sel = $('company');
+  google.script.run.withSuccessHandler(function (r) {
+    showMsg('freee と連携しました（' + r.companyName + '）', 'info');
+    $('companies').style.display = 'none';
+    init();
+  }).withFailureHandler(function (e) { showMsg(e.message); }).freeeSelectCompany(sel.value, sel.options[sel.selectedIndex].text);
+};
+
+function selected() {
+  return invoices.filter(function (inv, i) { var cb = $('inv' + i); return cb && cb.checked; }).map(function (inv) { return inv.client; });
+}
+function updateButton() {
+  var n = selected().length;
+  $('create').disabled = !n;
+  $('create').textContent = n ? 'freee に請求書を作る（' + n + '件）' : 'freee に請求書を作る';
+  invoices.forEach(function (inv, i) { var c = $('card' + i); if (c) c.className = 'card' + ($('inv' + i).checked ? ' on' : ''); });
+}
+
+$('check').onclick = function () {
+  if (!$('month').value) return;
+  $('check').disabled = true;
+  $('msg').className = 'msg';
+  google.script.run.withSuccessHandler(function (list) {
+    $('check').disabled = false;
+    invoices = list;
+    if (!list.length) { $('list').innerHTML = '<p>この月に請求書が「未」の行はありません。</p>'; updateButton(); return; }
+    $('list').innerHTML = list.map(function (inv, i) {
+      var ok = !inv.problems.length && inv.lines.length;
+      return '<div class="card" id="card' + i + '"><div class="card-head">' +
+        '<input type="checkbox" id="inv' + i + '"' + (ok ? ' checked' : ' disabled') + '>' +
+        '<strong>' + esc(inv.client) + '</strong><span>合計 ' + yen(inv.total) + '（税込）</span></div>' +
+        '<div class="meta">' + esc(inv.subject) + '／請求日 ' + esc(inv.billingDate) + '／支払期日 ' + esc(inv.paymentDate) + '／' + inv.rowCount + '行</div>' +
+        '<table><tr><th>品名</th><th class="n">数量</th><th class="n">単価</th><th class="n">金額</th></tr>' +
+        inv.lines.map(function (l) {
+          return '<tr><td>' + esc(l.description) + '</td><td class="n">' + esc(l.quantity) + ' ' + esc(l.unit) + '</td><td class="n">' + yen(l.unitPrice) + '</td><td class="n">' + yen(l.amount) + '</td></tr>';
+        }).join('') +
+        '<tr class="sum"><td colspan="3" class="n">小計（税抜）</td><td class="n">' + yen(inv.subtotal) + '</td></tr>' +
+        '<tr class="sum"><td colspan="3" class="n">消費税（10%）</td><td class="n">' + yen(inv.tax) + '</td></tr></table>' +
+        (inv.problems.length ? '<div class="problem">シートを直してから、もう一度「内容を確認」を押してください：\n' + esc(inv.problems.join('\n')) + '</div>' : '') +
+        (inv.warnings.length ? '<div class="warn">人数を確認してください（請求はシートの「人数」で計算しています）：\n' + esc(inv.warnings.join('\n')) + '</div>' : '') +
+        '</div>';
+    }).join('');
+    updateButton();
+  }).withFailureHandler(function (e) { $('check').disabled = false; showMsg(e.message); }).freeeInvoicePreview($('month').value);
+};
+
+document.addEventListener('change', function (e) {
+  if (e.target.id === 'month') { invoices = []; $('list').innerHTML = ''; updateButton(); return; }
+  if (/^inv\d+$/.test(e.target.id)) updateButton();
+});
+
+$('create').onclick = function () {
+  var clients = selected();
+  if (!clients.length) return;
+  if (!confirm(clients.length + '件の請求書を freee に作ります。よろしいですか？\n（freee では「送付待ち」になります）')) return;
+  $('create').disabled = true;
+  $('check').disabled = true;
+  $('create').textContent = '作成中…';
+  google.script.run.withSuccessHandler(function (results) {
+    $('check').disabled = false;
+    invoices = [];
+    $('list').innerHTML = '';
+    updateButton();
+    var ng = results.filter(function (r) { return !r.ok; });
+    showMsg(results.map(function (r) {
+      return r.ok ? '✓ ' + r.client + '：請求書番号 ' + r.number + '（' + yen(r.total) + '）' : '✗ ' + r.client + '：' + r.error;
+    }).join('\n') + '\n\n' + (ng.length ? '作れなかった請求書は、理由を直してからもう一度作成してください。' : 'freee の「請求書」で内容を確認して、送付してください。'), ng.length ? 'err' : 'info');
+  }).withFailureHandler(function (e) {
+    $('check').disabled = false;
+    updateButton();
+    showMsg(e.message);
+  }).freeeCreateInvoices({ ym: $('month').value, clients: clients });
+};
+
+init();
+</script>
+</body>
+</html>

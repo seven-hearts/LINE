@@ -42,6 +42,12 @@ var DEPART_ALERT_MINUTES = 10;
 /** 出発時間を過ぎてもこの時間内なら出発確認を送る（自動処理が止まっていた場合など） */
 var DEPART_CHECK_WINDOW_MINUTES = 60;
 var INVOICE_OPTIONS = ['未', '発行済', '入金済'];
+/** 支払期日（末締め）：売上計上月の何か月後の月末か。取引先ごとの例外はここに書く（取引先名はシートと同じ書き方） */
+var PAYMENT_TERM_EXCEPTIONS = {
+  '株式会社Switch': 1
+};
+/** 例外以外の取引先（翌々月末）。スクリプト プロパティ PAYMENT_MONTHS_AFTER で変更できる */
+var DEFAULT_PAYMENT_MONTHS = 2;
 /** ポジション（D：ディレクター／AD：アシスタントディレクター／ST：スタッフ） */
 var ROLES = ['D', 'AD', 'ST'];
 var DEFAULT_ROLE = 'ST';
@@ -278,6 +284,22 @@ function normalizeCase_(c) {
   };
 }
 
+/** 取引先名の比べ方（全角・半角、空白、大文字・小文字の違いを無視） */
+function clientKey_(name) {
+  var s = str_(name);
+  if (s.normalize) s = s.normalize('NFKC');
+  return s.replace(/\s/g, '').toLowerCase();
+}
+
+/** その取引先の支払いが、売上計上月の何か月後か */
+function paymentMonthsFor_(client, defaultMonths) {
+  var key = clientKey_(client);
+  for (var name in PAYMENT_TERM_EXCEPTIONS) {
+    if (clientKey_(name) === key) return PAYMENT_TERM_EXCEPTIONS[name];
+  }
+  return isNum_(defaultMonths) ? defaultMonths : DEFAULT_PAYMENT_MONTHS;
+}
+
 function unitOf_(payBasis) {
   if (payBasis === '拘束時間' || payBasis === '実働時間') return '時給';
   if (payBasis === '日給') return '日給';
@@ -364,7 +386,7 @@ function jobRows_(cases, opts) {
       row.workHours = a.workHours;
       row.sales = a.sales;
       row.total = a.total;
-      row.paymentMonth = addMonths_(row.salesMonth, opts.paymentMonthsAfter);
+      row.paymentMonth = addMonths_(row.salesMonth, paymentMonthsFor_(row.client, opts.paymentMonthsAfter));
       Object.keys(row).forEach(function (k) { if (row[k] === null) row[k] = ''; });
       rows.push(row);
     });

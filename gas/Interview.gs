@@ -423,6 +423,7 @@ function onOpen() {
     .addItem('案件を取り込む（依頼文から）', 'showJobImport')
     .addItem('案件をLINEで配信', 'showJobSend')
     .addItem('確定した人に詳細連絡を送る', 'showDetailSend')
+    .addItem('freee に請求書を作る', 'showFreeeInvoice')
     .addSeparator()
     .addItem('登録途中の人にリマインドを今すぐ送る', 'sendChatRemindersNow')
     .addSeparator()

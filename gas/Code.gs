@@ -48,8 +48,8 @@ function getConfig_() {
     geminiFallbackModels: geminiFallbackModels_(p.GEMINI_FALLBACK_MODELS),
     // 読み取りに使う AI。AI_PROVIDER（gemini / claude）がなければ、APIキーが入っているほうを使う
     aiProvider: aiProvider_(p),
-    // 入金予定月 = 売上計上月の何か月後か（取引先ごとに違う場合はシートで直してください）
-    paymentMonthsAfter: /^\d+$/.test((p.PAYMENT_MONTHS_AFTER || '').trim()) ? +p.PAYMENT_MONTHS_AFTER.trim() : 1
+    // 入金予定月 = 売上計上月の何か月後か（取引先ごとの例外は Jobs.gs の PAYMENT_TERM_EXCEPTIONS）
+    paymentMonthsAfter: /^\d+$/.test((p.PAYMENT_MONTHS_AFTER || '').trim()) ? +p.PAYMENT_MONTHS_AFTER.trim() : null // 空なら Jobs.gs の DEFAULT_PAYMENT_MONTHS
   };
 }
 
@@ -98,7 +98,7 @@ function doPost(e) {
  * コードの版。コードを変えるたびに更新する。
  * checkSettings がウェブアプリ（デプロイ済み）の版と比べて、デプロイし忘れを見つける。
  */
-var APP_VERSION = '2026-10-19.1';
+var APP_VERSION = '2026-10-19.2';
 
 function doGet() {
   return json_({ ok: true, service: 'sevenhearts-staff-registration', version: APP_VERSION });
