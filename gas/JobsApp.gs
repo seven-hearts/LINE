@@ -33,6 +33,7 @@ function setupJobSheets_(ss) {
     .requireValueInList([RECRUIT.OPEN, RECRUIT.CLOSED], true).build());
   col('ポジション').setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(ROLES, true).build());
   col('単位').setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(UNITS, true).build());
+  applyPartnerValidation_(ss);
 
   var apply = ss.getSheetByName(APPLY_SHEET);
   var statusValues = Object.keys(APPLY_STATUS).map(function (k) { return APPLY_STATUS[k]; });
@@ -103,6 +104,42 @@ function migrateWorkColumn_(sh) {
     var titles = sh.getRange(2, header['タイトル'] + 1, n, 1).getValues();
     sh.getRange(2, col + 1, n, 1).setValues(titles.map(function (t) { return [t[0] ? DEFAULT_ROLE : '']; }));
   }
+}
+
+// ---- 取引先の選択肢（シート「取引先一覧」。Freee.gs の freeeLoadPartners で freee から読み込む） ----
+
+/** 「取引先一覧」の取引先（まだ読み込んでいなければ空） */
+function partnerList_() {
+  var sh = spreadsheet_().getSheetByName(PARTNER_SHEET);
+  if (!sh || sh.getLastRow() < 2) return [];
+  return readAll_(PARTNER_SHEET).map(function (x) { return x.rec; }).filter(function (p) { return str_(p.name); });
+}
+
+/** 「案件一覧」の取引先名を、「取引先一覧」から選ぶプルダウンにする（一覧にない名前は入れられない） */
+function applyPartnerValidation_(ss) {
+  var partners = ss.getSheetByName(PARTNER_SHEET);
+  var jobs = ss.getSheetByName(JOB_SHEET);
+  if (!partners || partners.getLastRow() < 2 || !jobs) return;
+  var col = headerMap_(jobs)['取引先名'];
+  if (col === undefined) return;
+  jobs.getRange(2, col + 1, jobs.getMaxRows() - 1, 1).setDataValidation(SpreadsheetApp.newDataValidation()
+    .requireValueInRange(partners.getRange(2, 1, partners.getMaxRows() - 1, 1), true)
+    .setAllowInvalid(false)
+    .setHelpText('freee の取引先から選んでください（一覧はメニュー「freee の取引先を読み込む」で更新できます）')
+    .build());
+}
+
+/** 「案件一覧」の取引先名を freee の書き方にそろえる。そろえた行数と、見つからなかった名前を返す */
+function alignClientNames_(partners) {
+  var fixed = 0, unknown = {};
+  readAll_(JOB_SHEET).forEach(function (x) {
+    var c = str_(x.rec.client);
+    if (!c) return;
+    var name = matchPartnerName_(partners, c);
+    if (!name) unknown[c] = true;
+    else if (name !== c) { updateCells_(JOB_SHEET, x.row, { client: name }); fixed++; }
+  });
+  return { fixed: fixed, unknown: Object.keys(unknown) };
 }
 
 function jobSheets_() {
@@ -378,9 +415,11 @@ function showJobImport() {
 
 /** 画面を開いたとき：これまでの取引先名（入力候補） */
 function jobImportInit() {
+  var partners = partnerList_();
+  if (partners.length) return { clients: partners.map(function (p) { return str_(p.name); }), partnersOnly: true };
   var seen = {};
   readAll_(JOB_SHEET).forEach(function (x) { if (x.rec.client) seen[x.rec.client] = true; });
-  return { clients: Object.keys(seen).sort() };
+  return { clients: Object.keys(seen).sort(), partnersOnly: false };
 }
 
 /** 依頼文を読み取って、確認画面に出す案件の一覧を返す */
@@ -431,6 +470,13 @@ function saveJobs(payload) {
   var cases = (payload && payload.cases) || [];
   var client = str_(payload && payload.client);
   if (!cases.length) throw new Error('追加する案件がありません');
+  // freee の取引先を読み込んでいれば、その中から選んだ名前だけ受け付ける（請求書でエラーにならないように）
+  var partners = partnerList_();
+  if (partners.length) {
+    var name = matchPartnerName_(partners, client);
+    if (!name) throw new UserError(client ? '取引先「' + client + '」は freee に登録されていません。一覧から選んでください（freee に追加したら、メニュー「freee の取引先を読み込む」を実行してください）' : '取引先名を一覧から選んでください');
+    client = name;
+  }
   var importId = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyMMddHHmmss');
   var rows = jobRows_(cases, { client: client, importId: importId, paymentMonthsAfter: getConfig_().paymentMonthsAfter });
   if (!rows.length) throw new Error('日程が1つもありません。日程を入れてから追加してください');

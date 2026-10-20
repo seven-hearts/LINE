@@ -1027,3 +1027,14 @@ test('案件応募に手動で追加：重複・同じ日の確定は止め、�
   assert.deepStrictEqual([offline.name, offline.phone, offline.userId], ['鈴木 一', '080', '']);
   assert.strictEqual(ctx.manualApplyRecord_(slot, staff, { status: '応募' }, 'x').notifiedAt, '');
 });
+
+test('取引先名を freee の取引先名にそろえる', () => {
+  const partners = [{ name: '株式会社Ｓｗｉｔｃｈ', longName: '株式会社Ｓｗｉｔｃｈ' }, { name: '株式会社インパクト', longName: '株式会社IMPACT' }, { name: '株式会社ALL IN' }];
+  assert.strictEqual(ctx.matchPartnerName_(partners, '株式会社Switch'), '株式会社Ｓｗｉｔｃｈ');
+  assert.strictEqual(ctx.matchPartnerName_(partners, '株式会社IMPACT'), '株式会社インパクト');
+  assert.strictEqual(ctx.matchPartnerName_(partners, '株式会社 all in'), '株式会社ALL IN');
+  assert.strictEqual(ctx.matchPartnerName_(partners, '株式会社ほか'), '');
+  assert.strictEqual(ctx.matchPartnerName_(partners, ''), '');
+  // Switch の支払期日（翌月末）は、freee の全角の書き方でも同じ
+  assert.strictEqual(ctx.paymentMonthsFor_('株式会社Ｓｗｉｔｃｈ'), 1);
+});

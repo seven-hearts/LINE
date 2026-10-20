@@ -13,6 +13,7 @@ var LOG_MAX_ROWS = 1000;
 var JOB_SHEET = '案件一覧';   // お客様からの案件（Jobs.gs）
 var APPLY_SHEET = '案件応募'; // LINE で配信した案件への応募
 var IMPORT_SHEET = '案件取込履歴';
+var PARTNER_SHEET = '取引先一覧'; // freee の取引先（「案件一覧」の取引先名の選択肢。freee から読み込む）
 var MANUAL_LOG_SHEET = 'マニュアル閲覧';     // スタッフマニュアルを開いた・章を読み終えた記録（Manual.gs）
 var MANUAL_SUMMARY_SHEET = 'マニュアル集計'; // 閲覧数のまとめ（毎朝とメニューから作り直す）
 var RICHMENU_SHEET = 'リッチメニュー設定';    // スタッフ用リッチメニューの画像とボタン（RichMenu.gs）
@@ -247,6 +248,13 @@ COLUMNS[MANUAL_LOG_SHEET] = [
   ['title', '章の名前'],
   ['total', '全体の章の数'],
   ['from', '開いた場所']
+];
+
+COLUMNS[PARTNER_SHEET] = [
+  ['name', '取引先名'],
+  ['longName', '正式名称'],
+  ['partnerId', 'freee取引先ID'],
+  ['loadedAt', '読み込み日時']
 ];
 
 COLUMNS[IMPORT_SHEET] = [

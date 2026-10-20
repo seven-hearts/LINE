@@ -78,9 +78,29 @@ function clearMsg() { $('msg').className = 'msg'; }
 // シートの「2026/10/08」⇔ 入力欄の「2026-10-08」
 function toInputDate(s) { return String(s || '').replace(/\//g, '-'); }
 
+// 取引先名の比べ方（全角・半角、空白、大文字・小文字の違いを無視）
+function clientKey(s) { s = String(s || ''); if (s.normalize) s = s.normalize('NFKC'); return s.replace(/\s/g, '').toLowerCase(); }
+// freee の取引先を読み込んでいれば、その中から選ぶプルダウンにする
+var partnerNames = null;
 google.script.run.withSuccessHandler(function (r) {
+  if (r.partnersOnly) {
+    partnerNames = r.clients;
+    var sel = document.createElement('select');
+    sel.id = 'client';
+    sel.innerHTML = '<option value="">（freee の取引先から選ぶ）</option>' + r.clients.map(function (c) { return '<option>' + esc(c) + '</option>'; }).join('');
+    $('client').replaceWith(sel);
+    return;
+  }
   $('clients').innerHTML = r.clients.map(function (c) { return '<option value="' + esc(c) + '">'; }).join('');
 }).jobImportInit();
+
+/** AI が読み取った取引先名を入れる（プルダウンのときは、一覧に同じ名前があるときだけ） */
+function setFoundClient(found) {
+  if (!partnerNames) { $('client').value = found; return; }
+  var hit = partnerNames.filter(function (n) { return clientKey(n) === clientKey(found); })[0];
+  if (hit) $('client').value = hit;
+  else showMsg('依頼文の取引先「' + found + '」は freee の取引先一覧にありません。プルダウンから選んでください。', 'info');
+}
 
 $('parse').onclick = function () {
   var text = $('text').value.trim();
@@ -95,7 +115,7 @@ $('parse').onclick = function () {
     cases = r.cases;
     if (!$('client').value.trim()) {
       var found = cases.map(function (c) { return c.client; }).filter(Boolean)[0];
-      if (found) $('client').value = found;
+      if (found) setFoundClient(found);
     }
     render();
   }).withFailureHandler(function (e) {
@@ -184,6 +204,7 @@ $('save').onclick = function () {
     c.shifts.forEach(function (s) { if (!s.date) missing.push('案件' + (i + 1) + 'の日程'); });
   });
   if (missing.length) return showMsg('入力してください：' + missing.filter(function (m, i, a) { return a.indexOf(m) === i; }).join('、'));
+  if (partnerNames && !$('client').value) return showMsg('取引先名をプルダウンから選んでください');
   clearMsg();
   $('save').disabled = true;
   $('saveStatus').innerHTML = '<span class="spin"></span>追加しています';

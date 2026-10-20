@@ -296,6 +296,14 @@ function clientKey_(name) {
   return s.replace(/\s/g, '').toLowerCase();
 }
 
+/** 取引先名 → freee の取引先名（通称・正式名称と、全角・半角や空白の違いを無視して比べる）。なければ '' */
+function matchPartnerName_(partners, client) {
+  var key = clientKey_(client);
+  if (!key) return '';
+  var hit = partners.filter(function (p) { return clientKey_(p.name) === key || (p.longName && clientKey_(p.longName) === key); })[0];
+  return hit ? str_(hit.name) : '';
+}
+
 /** その取引先の支払いが、売上計上月の何か月後か */
 function paymentMonthsFor_(client, defaultMonths) {
   var key = clientKey_(client);

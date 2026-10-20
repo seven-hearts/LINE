@@ -369,7 +369,42 @@ function freeeSelectCompany(id, name) {
 function freeeSelectCompanyLocked_(c) {
   freeeProps_().setProperty('FREEE_COMPANY_ID', String(c.id));
   freeeProps_().setProperty('FREEE_COMPANY_NAME', str_(c.display_name || c.name));
+  // 連携したら、取引先の選択肢も freee から読み込んでおく（失敗しても連携はできている）
+  try { loadPartnersLocked_(); } catch (err) { logError_('freee 取引先の読み込み', '', err); }
   return { connected: true, companyName: str_(c.display_name || c.name) };
+}
+
+/** メニュー「freee の取引先を読み込む」 */
+function freeeLoadPartners() {
+  var ui = SpreadsheetApp.getUi();
+  try {
+    var r = withLock_(loadPartnersLocked_);
+    ui.alert('freee の取引先を読み込みました',
+      r.count + '件の取引先を、シート「取引先一覧」に読み込みました。\n「案件一覧」の取引先名は、この一覧から選べます。' +
+      (r.fixed ? '\n\n' + r.fixed + '行の取引先名を freee の書き方にそろえました。' : '') +
+      (r.unknown.length ? '\n\n次の取引先名は freee に見つかりませんでした。freee に登録するか、「案件一覧」で選び直してください：\n・' + r.unknown.join('\n・') : ''),
+      ui.ButtonSet.OK);
+  } catch (err) {
+    ui.alert('読み込めませんでした', err.message, ui.ButtonSet.OK);
+  }
+}
+
+/** freee の取引先（使用停止を除く）を「取引先一覧」に入れ直し、「案件一覧」の取引先名をプルダウンにする */
+function loadPartnersLocked_() {
+  var companyId = freeeCompanyId_();
+  var list = freeePartners_(companyId).filter(function (p) { return p.available !== false && str_(p.name); }).map(function (p) {
+    return { name: str_(p.name), longName: str_(p.long_name), partnerId: p.id, loadedAt: now_() };
+  });
+  if (!list.length) throw new UserError('freee に取引先が登録されていません');
+  list.sort(function (a, b) { return a.name.localeCompare(b.name, 'ja'); });
+  var ss = spreadsheet_();
+  jobSheets_();
+  var sh = ensureSheet_(ss, PARTNER_SHEET);
+  if (sh.getLastRow() > 1) sh.getRange(2, 1, sh.getLastRow() - 1, sh.getLastColumn()).clearContent();
+  appendRecords_(PARTNER_SHEET, list);
+  var aligned = alignClientNames_(list);
+  applyPartnerValidation_(ss);
+  return { count: list.length, fixed: aligned.fixed, unknown: aligned.unknown };
 }
 
 /** 作成する前の確認（freee には送らない） */
