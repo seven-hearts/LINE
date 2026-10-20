@@ -1101,3 +1101,20 @@ test('以前の形式の ID を振り直す（取り込んだ月ごとの通し�
   const after = jobs.map((j) => Object.assign({}, j, (m.jobs.find((x) => x.row === j._row) || {})));
   assert.deepStrictEqual(plain(ctx.jobIdMigration_(after, [])), { jobs: [], apps: [] });
 });
+
+test('案件一覧の応募人数・確定人数を数え直す（変わった行だけ）', () => {
+  const jobs = [
+    { _row: 2, slotId: 'A-01', applied: 2, confirmed: '' },
+    { _row: 3, slotId: 'A-02', applied: 1, confirmed: 1 },
+    { _row: 4, slotId: 'A-03', applied: '1', confirmed: '0' }
+  ];
+  const apps = [
+    { slotId: 'A-01', status: '確定' }, { slotId: 'A-01', status: '応募' }, { slotId: 'A-01', status: '辞退' },
+    { slotId: 'A-02', status: '確定' },
+    { slotId: 'A-03', status: '見送り' }
+  ];
+  assert.deepStrictEqual(plain(ctx.slotCountChanges_(jobs, apps)), [{ row: 2, fields: { confirmed: 1 } }]);
+  assert.deepStrictEqual(plain(ctx.slotCountChanges_(jobs, [])), [
+    { row: 2, fields: { applied: 0, confirmed: 0 } }, { row: 3, fields: { applied: 0, confirmed: 0 } }, { row: 4, fields: { applied: 0 } }
+  ]);
+});

@@ -68,6 +68,21 @@ function migrateJobColumns_(sh) {
   });
   var header = headerMap_(sh);
   if (header['支払い'] !== undefined) sh.deleteColumn(header['支払い'] + 1);
+  // 「確定人数」を「応募人数」のすぐ右に足す
+  header = headerMap_(sh);
+  if (header['応募人数'] !== undefined && header['確定人数'] === undefined) {
+    var col = header['応募人数'] + 1;
+    sh.insertColumnAfter(col);
+    if (sh.getMaxRows() > 1) sh.getRange(2, col + 1, sh.getMaxRows() - 1, 1).clearDataValidations();
+    sh.getRange(1, col + 1, 1, 1).setValues([['確定人数']]);
+  }
+}
+
+/** 「案件一覧」の応募人数・確定人数を「案件応募」から数え直す（変わった行だけ書く） */
+function recountSlots_() {
+  var jobs = readAll_(JOB_SHEET).map(function (x) { x.rec._row = x.row; return x.rec; });
+  var apps = readAll_(APPLY_SHEET).map(function (x) { return x.rec; });
+  slotCountChanges_(jobs, apps).forEach(function (c) { updateCells_(JOB_SHEET, c.row, c.fields); });
 }
 
 /** 見出し oldLabel の列を、newLabel とその右隣の nextLabel の2列に分ける（split が値を2つに分ける） */
@@ -749,6 +764,7 @@ function onApplyEdit_(e) {
       logError_('案件応募：' + app.status, app.userId, err);
     }
   });
+  recountSlots_(); // 「案件一覧」の応募人数・確定人数
 }
 
 /** 勤務時間・休憩・給与形態・単価を編集した行の、実働時間と給与額を計算し直す */
@@ -817,7 +833,7 @@ function manualApplyAdd(req) {
   var results = withLock_(function () {
     var jobs = readAll_(JOB_SHEET);
     var apps = readAll_(APPLY_SHEET).map(function (x) { return x.rec; });
-    return slotIds.map(function (id) {
+    var out = slotIds.map(function (id) {
       var slot = null;
       for (var i = 0; i < jobs.length && !slot; i++) if (jobs[i].rec.slotId === id) slot = jobs[i];
       var label = slot ? slotLabel_(slot.rec) + ' ' + str_(slot.rec.title) : id;
@@ -826,10 +842,10 @@ function manualApplyAdd(req) {
       var rec = manualApplyRecord_(slot.rec, staff, req, now_());
       var row = appendRecords_(APPLY_SHEET, [rec]);
       apps.push(rec); // 同じ日に2つ確定にしないよう、続きの判定に入れる
-      var count = apps.filter(function (a) { return a.slotId === rec.slotId && a.status !== APPLY_STATUS.CANCELLED; }).length;
-      updateCells_(JOB_SHEET, slot.row, { applied: count });
       return { label: label, row: row, rec: rec };
     });
+    recountSlots_(); // 「案件一覧」の応募人数・確定人数
+    return out;
   });
 
   // 確定の連絡は、まとめて1回で送る（1回に5通まで）
@@ -1088,6 +1104,7 @@ function syncApplyTimes_() {
   readAll_(JOB_SHEET).forEach(function (x) { if (x.rec.slotId) slots[x.rec.slotId] = x.rec; });
   var apps = readAll_(APPLY_SHEET).map(function (x) { x.rec._row = x.row; return x.rec; });
   applyTimeChanges_(apps, slots).forEach(function (c) { updateCells_(APPLY_SHEET, c.row, c.fields); });
+  recountSlots_();
 }
 
 /** 行のコピーで同じになった枠IDを付け直す（「案件一覧」の編集時・1分ごと・手動追加の画面を開いたとき） */

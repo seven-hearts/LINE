@@ -430,6 +430,7 @@ function jobRows_(cases, opts) {
         staffTransport: STAFF_TRANSPORT,
         recruit: RECRUIT.OPEN,
         applied: 0,
+        confirmed: 0,
         prefecture: c.prefecture,
         genderReq: c.genderReq,
         caseId: caseId,
@@ -1039,6 +1040,33 @@ function jobIdMigration_(jobs, apps) {
     if (slotMap[a.slotId] || caseMap[a.caseId]) {
       out.apps.push({ row: a._row, slotId: slotMap[a.slotId] || a.slotId, caseId: caseMap[a.caseId] || a.caseId });
     }
+  });
+  return out;
+}
+
+/** 枠IDごとの応募人数（辞退以外）と確定人数 */
+function slotCounts_(apps) {
+  var counts = {};
+  apps.forEach(function (a) {
+    if (!a.slotId || a.status === APPLY_STATUS.CANCELLED) return;
+    var c = counts[a.slotId] || (counts[a.slotId] = { applied: 0, confirmed: 0 });
+    c.applied++;
+    if (a.status === APPLY_STATUS.CONFIRMED) c.confirmed++;
+  });
+  return counts;
+}
+
+/** 「案件一覧」の応募人数・確定人数で、数え直して変わる行だけ返す */
+function slotCountChanges_(jobs, apps) {
+  var counts = slotCounts_(apps);
+  var out = [];
+  jobs.forEach(function (j) {
+    if (!j.slotId) return;
+    var c = counts[j.slotId] || { applied: 0, confirmed: 0 };
+    var f = {};
+    if (toNum_(j.applied) !== c.applied) f.applied = c.applied;
+    if (toNum_(j.confirmed) !== c.confirmed) f.confirmed = c.confirmed;
+    if (Object.keys(f).length) out.push({ row: j._row, fields: f });
   });
   return out;
 }

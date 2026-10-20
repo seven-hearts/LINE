@@ -195,7 +195,8 @@ COLUMNS[JOB_SHEET] = [
   ['recruit', '募集状況'],
   ['sentAt', '配信日時'],
   ['sentCount', '配信人数'],
-  ['applied', '応募人数'],
+  ['applied', '応募人数'],         // 辞退以外の応募（自動）
+  ['confirmed', '確定人数'],       // 状態が「確定」の応募（自動）
   ['prefecture', '都道府県'],
   ['genderReq', '性別'],
   ['caseId', '案件ID'],
