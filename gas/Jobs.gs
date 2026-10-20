@@ -942,6 +942,36 @@ function departureAlertMail_(app, reason, sheetUrl) {
  * @param {Array} apps 「案件応募」の行（_row 付き）
  * @param {Object} slots 枠ID → 「案件一覧」の行
  */
+/**
+ * 「案件一覧」で行をコピーして別の日程を作ると、枠IDまで同じになり、別の日程が同じ枠として扱われてしまう。
+ * 同じ枠IDの2行目以降に新しい枠IDを付け、その日程・時間の応募も新しい枠IDに付け替える。
+ * @param {Array} jobs 「案件一覧」の行（_row 付き）
+ * @param {Array} apps 「案件応募」の行（_row 付き）
+ * @return {{jobs: Array<{row: number, slotId: string}>, apps: Array<{row: number, slotId: string}>}}
+ */
+function duplicateSlotFixes_(jobs, apps) {
+  var used = {}, first = {}, out = { jobs: [], apps: [] };
+  var key = function (r) { var d = parseYmd_(r.date); return (d ? ymd_(d) : str_(r.date)) + ' ' + normalizeTime_(r.start); };
+  jobs.forEach(function (j) { if (j.slotId) used[j.slotId] = true; });
+  jobs.forEach(function (j) {
+    var id = str_(j.slotId);
+    if (!id) return;
+    if (!first[id]) { first[id] = j; return; }
+    var base = str_(j.caseId) || id.replace(/-\d+$/, '');
+    var n = 1;
+    while (used[base + '-' + n]) n++;
+    var newId = base + '-' + n;
+    used[newId] = true;
+    out.jobs.push({ row: j._row, slotId: newId });
+    // 1行目と日程・開始時間が違えば、この日程・時間の応募はこの行のもの
+    if (key(j) === key(first[id])) return;
+    apps.forEach(function (a) {
+      if (a.slotId === id && key(a) === key(j)) out.apps.push({ row: a._row, slotId: newId });
+    });
+  });
+  return out;
+}
+
 function applyTimeChanges_(apps, slots) {
   var changes = [];
   apps.forEach(function (a) {
@@ -967,9 +997,8 @@ function manualApplyError_(apps, slot, staff, req) {
   var same = function (a) {
     return staff ? a.userId === staff.userId : !a.userId && clientKey_(a.name) === clientKey_(name);
   };
-  if (apps.some(function (a) { return a.slotId === slot.slotId && same(a) && a.status !== APPLY_STATUS.CANCELLED; })) {
-    return name + ' さんは、この日程にすでに入っています';
-  }
+  var dup = apps.filter(function (a) { return a.slotId === slot.slotId && same(a) && a.status !== APPLY_STATUS.CANCELLED; })[0];
+  if (dup) return name + ' さんは、この日程（' + str_(dup.date) + ' ' + appTimeText_(dup) + '）にすでに「' + dup.status + '」で入っています';
   if (req.status === APPLY_STATUS.CONFIRMED) {
     var day = function (a) { var d = parseYmd_(a.date); return d ? ymd_(d) : str_(a.date); };
     var other = apps.filter(function (a) { return a.status === APPLY_STATUS.CONFIRMED && same(a) && day(a) === day(slot); })[0];

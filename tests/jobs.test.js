@@ -1010,13 +1010,14 @@ test('案件応募に手動で追加：重複・同じ日の確定は止め、�
   assert.strictEqual(ctx.manualApplyError_([], null, staff, conf), '日程を選んでください（「案件一覧」に見つかりません）');
   assert.strictEqual(ctx.manualApplyError_([], slot, null, conf), 'スタッフを選ぶか、名前を入れてください');
   assert.strictEqual(ctx.manualApplyError_([], slot, staff, conf), '');
-  assert.match(ctx.manualApplyError_([{ slotId: 'S-1', userId: 'U1', status: '応募' }], slot, staff, conf), /すでに入っています/);
+  assert.strictEqual(ctx.manualApplyError_([{ slotId: 'S-1', userId: 'U1', status: '応募', date: '2026/10/21', start: '09:00', end: '18:00' }], slot, staff, conf),
+    '山田 花子 さんは、この日程（2026/10/21 9:00〜18:00）にすでに「応募」で入っています');
   assert.strictEqual(ctx.manualApplyError_([{ slotId: 'S-1', userId: 'U1', status: '辞退' }], slot, staff, conf), '');
   const other = { slotId: 'T-1', userId: 'U1', status: '確定', date: '2026/10/21', title: '物産展', start: '10:00', end: '15:00' };
   assert.match(ctx.manualApplyError_([other], slot, staff, conf), /同じ日（2026\/10\/21）に「物産展」/);
   assert.strictEqual(ctx.manualApplyError_([other], slot, staff, { status: '応募' }), '');
   // LINE 未登録の人は名前で重複を見る
-  assert.match(ctx.manualApplyError_([{ slotId: 'S-1', userId: '', name: '鈴木 一', status: '確定' }], slot, null, { status: '確定', name: '鈴木一' }), /すでに入っています/);
+  assert.match(ctx.manualApplyError_([{ slotId: 'S-1', userId: '', name: '鈴木 一', status: '確定' }], slot, null, { status: '確定', name: '鈴木一' }), /すでに「確定」で入っています/);
 
   const rec = plain(ctx.manualApplyRecord_(slot, staff, { status: '確定', notify: true }, '2026/10/19 12:34:56'));
   assert.deepStrictEqual([rec.name, rec.userId, rec.payUnit, rec.payRate, rec.notifiedAt, rec.adminMemo, rec.date, rec.start],
@@ -1037,4 +1038,24 @@ test('取引先名を freee の取引先名にそろえる', () => {
   assert.strictEqual(ctx.matchPartnerName_(partners, ''), '');
   // Switch の支払期日（翌月末）は、freee の全角の書き方でも同じ
   assert.strictEqual(ctx.paymentMonthsFor_('株式会社Ｓｗｉｔｃｈ'), 1);
+});
+
+test('行のコピーで同じになった枠IDは付け直し、その日程の応募も付け替える', () => {
+  const jobs = [
+    { _row: 2, caseId: 'C', slotId: 'C-1', date: '2026/10/31', start: '09:00' },
+    { _row: 3, caseId: 'C', slotId: 'C-2', date: '2026/10/30', start: '09:00' },
+    { _row: 4, caseId: 'C', slotId: 'C-1', date: '2026/11/01', start: '09:00' }, // 10/31 の行をコピー
+    { _row: 5, caseId: 'C', slotId: 'C-1', date: '2026/10/31', start: '09:00' }, // まったく同じ行
+    { _row: 6, caseId: 'D', slotId: 'D-1', date: '2026/11/02', start: '10:00' }
+  ];
+  const apps = [
+    { _row: 2, slotId: 'C-1', date: '2026/10/31', start: '09:00' },
+    { _row: 3, slotId: 'C-1', date: '2026/11/01', start: '09:00' },
+    { _row: 4, slotId: 'D-1', date: '2026/11/02', start: '10:00' }
+  ];
+  assert.deepStrictEqual(plain(ctx.duplicateSlotFixes_(jobs, apps)), {
+    jobs: [{ row: 4, slotId: 'C-3' }, { row: 5, slotId: 'C-4' }],
+    apps: [{ row: 3, slotId: 'C-3' }]
+  });
+  assert.deepStrictEqual(plain(ctx.duplicateSlotFixes_(jobs.slice(0, 2), apps)), { jobs: [], apps: [] });
 });

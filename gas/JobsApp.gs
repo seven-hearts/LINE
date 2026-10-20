@@ -759,6 +759,7 @@ function showManualApply() {
 
 /** 画面を開いたとき：選べる日程（2か月前〜）と、スタッフの一覧 */
 function manualApplyInit() {
+  withLock_(fixDuplicateSlotIds_);
   var now = new Date();
   var from = ymd_(new Date(now.getFullYear(), now.getMonth() - 2, now.getDate()));
   var slots = readAll_(JOB_SHEET).map(function (x) { return x.rec; }).filter(function (r) {
@@ -1029,16 +1030,27 @@ function migrateApplyColumns_(sh) {
 function syncApplyTimes_() {
   var ss = spreadsheet_();
   if (!ss.getSheetByName(APPLY_SHEET) || !ss.getSheetByName(JOB_SHEET)) return;
+  fixDuplicateSlotIds_();
   var slots = {};
   readAll_(JOB_SHEET).forEach(function (x) { if (x.rec.slotId) slots[x.rec.slotId] = x.rec; });
   var apps = readAll_(APPLY_SHEET).map(function (x) { x.rec._row = x.row; return x.rec; });
   applyTimeChanges_(apps, slots).forEach(function (c) { updateCells_(APPLY_SHEET, c.row, c.fields); });
 }
 
+/** 行のコピーで同じになった枠IDを付け直す（「案件一覧」の編集時・1分ごと・手動追加の画面を開いたとき） */
+function fixDuplicateSlotIds_() {
+  var jobs = readAll_(JOB_SHEET).map(function (x) { x.rec._row = x.row; return x.rec; });
+  var apps = readAll_(APPLY_SHEET).map(function (x) { x.rec._row = x.row; return x.rec; });
+  var fixes = duplicateSlotFixes_(jobs, apps);
+  fixes.jobs.forEach(function (f) { updateCells_(JOB_SHEET, f.row, { slotId: f.slotId }); });
+  fixes.apps.forEach(function (f) { updateCells_(APPLY_SHEET, f.row, { slotId: f.slotId }); });
+  return fixes.jobs.length;
+}
+
 /** 「案件一覧」を手で編集したとき（onStatusEdit から） */
 function onJobSheetEdit_(e) {
   var header = headerMap_(e.range.getSheet());
-  var cols = ['日程', '開始時間', '終了時間'].map(function (l) { return header[l] + 1; });
+  var cols = ['日程', '開始時間', '終了時間', '枠ID'].map(function (l) { return header[l] + 1; });
   var from = e.range.getColumn(), to = e.range.getLastColumn();
   if (!cols.some(function (c) { return c >= from && c <= to; })) return;
   syncApplyTimes_();
