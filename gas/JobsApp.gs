@@ -815,7 +815,10 @@ function manualApplyInit() {
     var da = ymd_(parseYmd_(a.date)) + normalizeTime_(a.start), db = ymd_(parseYmd_(b.date)) + normalizeTime_(b.start);
     return da < db ? -1 : da > db ? 1 : 0;
   }).map(function (r) {
-    return { slotId: r.slotId, label: slotLabel_(r) + ' ' + str_(r.title), client: str_(r.client), past: ymd_(parseYmd_(r.date)) < ymd_(now) };
+    return {
+      slotId: r.slotId, label: slotLabel_(r) + ' ' + str_(r.title), client: str_(r.client), role: str_(r.role),
+      headcount: toNum_(r.headcount), confirmed: toNum_(r.confirmed) || 0, past: ymd_(parseYmd_(r.date)) < ymd_(now)
+    };
   });
   var staff = staffRecords_().filter(function (s) { return s.userId && s.lastName; }).map(function (s) {
     return { userId: s.userId, name: fullName_(s), kana: str_(s.lastNameKana) + ' ' + str_(s.firstNameKana), status: s.status, blocked: !!s.blocked };

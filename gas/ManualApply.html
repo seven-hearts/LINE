@@ -14,6 +14,9 @@
   .item { display: flex; gap: 8px; align-items: baseline; padding: 5px 10px; border-bottom: 1px solid #f0ebe7; cursor: pointer; }
   .item:last-child { border-bottom: none; }
   .item .sub { color: var(--muted); font-size: 11px; }
+  .role { display: inline-block; min-width: 30px; text-align: center; padding: 0 5px; border-radius: 3px; font-size: 11px; font-weight: bold; color: #fff; background: #A39489; }
+  .role.D { background: #381E19; }
+  .role.AD { background: #9E7A34; }
   .item.on { background: var(--bg); }
   .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .other { display: none; margin-top: 6px; }
@@ -32,7 +35,7 @@
   <div id="msg" class="msg"></div>
 
   <h2>① 日程（複数選べます） <span class="hint" id="slotCount"></span></h2>
-  <div class="row"><input type="text" id="slotSearch" placeholder="タイトル・日付・取引先で絞り込み" style="width:280px">
+  <div class="row"><input type="text" id="slotSearch" placeholder="タイトル・日付・取引先・ポジションで絞り込み" style="width:340px">
     <label><input type="checkbox" id="showPast"> 過ぎた日程も出す（2か月前まで）</label>
     <button type="button" id="slotClear" style="padding:3px 10px;font-size:12px">選択を外す</button></div>
   <div class="list" id="slotList"></div>
@@ -70,6 +73,7 @@
 var data = { slots: [], staff: [] };
 var chosenStaff = '';
 var chosenSlots = {};
+var ROLE_NAMES = { D: 'ディレクター', AD: 'アシスタントディレクター', ST: 'スタッフ' };
 function $(id) { return document.getElementById(id); }
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
 function norm(s) { return String(s || '').replace(/\s/g, '').toLowerCase(); }
@@ -83,11 +87,13 @@ function selectedSlots() {
 }
 function renderSlots() {
   var q = norm($('slotSearch').value), past = $('showPast').checked;
-  var list = data.slots.filter(function (s) { return chosenSlots[s.slotId] || ((past || !s.past) && (!q || norm(s.label + s.client).indexOf(q) >= 0)); });
+  var list = data.slots.filter(function (s) { return chosenSlots[s.slotId] || ((past || !s.past) && (!q || norm(s.label + s.client + s.role + (ROLE_NAMES[s.role] || '')).indexOf(q) >= 0)); });
   $('slotList').innerHTML = list.map(function (s) {
     var on = !!chosenSlots[s.slotId];
     return '<label class="item' + (on ? ' on' : '') + '"><input type="checkbox" name="slot" value="' + esc(s.slotId) + '"' + (on ? ' checked' : '') + '>' +
-      '<span>' + esc(s.label) + '</span><span class="sub">' + esc(s.client) + '</span></label>';
+      (s.role ? '<span class="role ' + esc(s.role) + '" title="' + esc(ROLE_NAMES[s.role] || s.role) + '">' + esc(s.role) + '</span>' : '') +
+      '<span>' + esc(s.label) + '</span><span class="sub">' + esc([s.client,
+        s.headcount ? '確定 ' + s.confirmed + ' / 募集 ' + s.headcount + '名' : ''].filter(Boolean).join('／')) + '</span></label>';
   }).join('') || '<div class="item sub">該当する日程がありません</div>';
   var n = selectedSlots().length;
   $('slotCount').textContent = n ? n + '件選択中' : '';
