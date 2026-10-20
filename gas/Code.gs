@@ -147,6 +147,7 @@ function setup() {
   reg.getRange(2, statusCol, reg.getMaxRows() - 1, 1).setDataValidation(
     SpreadsheetApp.newDataValidation().requireValueInList(values, true).setAllowInvalid(false).build()
   );
+  grayOutInactiveRows_(reg, statusCol);
 
   if (!props.getProperty('DRIVE_FOLDER_ID')) {
     var folder = DriveApp.createFolder('セブンハーツ_スタッフ提出書類');

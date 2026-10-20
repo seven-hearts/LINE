@@ -477,3 +477,32 @@ test('Google Meet の案内：iPhone はアプリなしで参加でき、Android
   assert.ok(btn.template.text.length <= 160);
   assert.doesNotMatch(guide, /スマホに「Google Meet」アプリを入れておいてください/);
 });
+
+test('スタッフ登録：書類落選・不採用・退会の行をグレーにする（setup を何度実行しても1つだけ）', () => {
+  assert.strictEqual(ctx.inactiveRowFormula_('K'), '=OR($K2="書類落選",$K2="不採用",$K2="退会")');
+  const other = { getBooleanCondition: () => ({ getCriteriaValues: () => ['=$A2=""'] }) };
+  const old = { getBooleanCondition: () => ({ getCriteriaValues: () => ['=OR($J2="不採用",$J2="退会")'] }) };
+  let saved = null;
+  const built = {};
+  const builder = {
+    whenFormulaSatisfied: (f) => { built.formula = f; return builder; },
+    setBackground: (c) => { built.bg = c; return builder; },
+    setFontColor: () => builder,
+    setRanges: (r) => { built.ranges = r; return builder; },
+    build: () => ({ built: true })
+  };
+  vm.runInContext('SpreadsheetApp = __sa;', Object.assign(ctx, { __sa: { newConditionalFormatRule: () => builder } }));
+  const sheet = {
+    getRange: (r, c, nr, nc) => ({ getA1Notation: () => 'K1', r, c, nr, nc }),
+    getConditionalFormatRules: () => [other, old],
+    setConditionalFormatRules: (rules) => { saved = rules; },
+    getMaxRows: () => 1000,
+    getMaxColumns: () => 30
+  };
+  ctx.grayOutInactiveRows_(sheet, 11);
+  assert.strictEqual(saved.length, 2);
+  assert.strictEqual(saved[0], other);
+  assert.strictEqual(built.formula, '=OR($K2="書類落選",$K2="不採用",$K2="退会")');
+  assert.strictEqual(built.bg, '#e0e0e0');
+  assert.deepStrictEqual([built.ranges[0].r, built.ranges[0].c, built.ranges[0].nr, built.ranges[0].nc], [2, 1, 999, 30]);
+});

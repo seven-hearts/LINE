@@ -425,6 +425,34 @@ function setStatus_(userId, status) {
   writeRecord_(REG_SHEET, userId, { status: status, updatedAt: now_() });
 }
 
+/** 「スタッフ登録」でグレーにするステータス（選考が終わった人・やめた人） */
+var INACTIVE_STATUSES = [STATUS.DOC_FAILED, STATUS.REJECTED, STATUS.LEFT];
+
+/** ステータス → 行をグレーにする条件付き書式の数式（2行目の形。シートが行ごとにずらして使う） */
+function inactiveRowFormula_(statusColLetter) {
+  return '=OR(' + INACTIVE_STATUSES.map(function (s) { return '$' + statusColLetter + '2="' + s + '"'; }).join(',') + ')';
+}
+
+/** 「スタッフ登録」で、書類落選・不採用・退会の人の行をグレーにする（条件付き書式。何度実行しても1つだけ） */
+function grayOutInactiveRows_(sh, statusCol) {
+  var letter = sh.getRange(1, statusCol).getA1Notation().replace(/\d+/g, '');
+  var formula = inactiveRowFormula_(letter);
+  var mine = function (rule) {
+    var c = rule.getBooleanCondition();
+    var v = c && c.getCriteriaValues();
+    // 以前この関数が付けたもの（ステータスの列が変わっていても）を入れ替える
+    return !!(v && v.length && String(v[0]).indexOf('"' + STATUS.LEFT + '"') >= 0 && String(v[0]).indexOf('=OR($') === 0);
+  };
+  var rules = sh.getConditionalFormatRules().filter(function (r) { return !mine(r); });
+  rules.push(SpreadsheetApp.newConditionalFormatRule()
+    .whenFormulaSatisfied(formula)
+    .setBackground('#e0e0e0')
+    .setFontColor('#757575')
+    .setRanges([sh.getRange(2, 1, sh.getMaxRows() - 1, sh.getMaxColumns())])
+    .build());
+  sh.setConditionalFormatRules(rules);
+}
+
 /** シートの作成・見出し・書式を整える（何度実行しても安全） */
 function ensureSheet_(ss, name) {
   var sh = ss.getSheetByName(name) || ss.insertSheet(name);
