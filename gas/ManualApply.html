@@ -50,7 +50,9 @@
     <div class="list" id="staffList"></div>
   </div>
   <div id="otherBox" class="other row">
-    <input type="text" id="name" placeholder="氏名（例：山田 太郎）" style="width:220px">
+    <select id="partnerPick" style="width:220px"></select>
+    <span class="hint">または</span>
+    <input type="text" id="name" placeholder="氏名を入力（例：山田 太郎）" style="width:220px">
     <input type="text" id="phone" placeholder="電話番号（任意）" style="width:180px">
     <span class="hint">LINE の連絡は送れません。</span>
   </div>
@@ -107,6 +109,12 @@ function renderStaff() {
       '<span>' + esc(s.name) + '</span><span class="sub">' + esc([s.kana, s.status, s.blocked ? 'ブロック中' : ''].filter(Boolean).join('／')) + '</span></label>';
   }).join('') || '<div class="item sub">該当するスタッフがいません</div>';
 }
+function renderPartners() {
+  var list = data.partners || [];
+  $('partnerPick').innerHTML = '<option value="">' + (list.length ? '取引先から選ぶ' : '（取引先一覧がありません）') + '</option>' +
+    list.map(function (n) { return '<option>' + esc(n) + '</option>'; }).join('');
+  $('partnerPick').disabled = !list.length;
+}
 function updateForm() {
   var line = who() === 'line';
   $('lineBox').style.display = line ? 'block' : 'none';
@@ -118,6 +126,7 @@ google.script.run.withSuccessHandler(function (r) {
   data = r;
   renderSlots();
   renderStaff();
+  renderPartners();
   updateForm();
 }).withFailureHandler(function (e) { showMsg(e.message); }).manualApplyInit();
 
@@ -125,6 +134,9 @@ $('slotSearch').oninput = renderSlots;
 $('showPast').onchange = renderSlots;
 $('slotClear').onclick = function () { chosenSlots = {}; renderSlots(); };
 $('staffSearch').oninput = renderStaff;
+// 取引先を選ぶと名前の欄に入る（手で入力し直すと、取引先の選択は外れる）
+$('partnerPick').onchange = function () { $('name').value = this.value; };
+$('name').oninput = function () { if ($('partnerPick').value !== this.value) $('partnerPick').value = ''; };
 document.addEventListener('change', function (e) {
   if (e.target.name === 'staff') { chosenStaff = e.target.value; renderStaff(); }
   if (e.target.name === 'slot') { if (e.target.checked) chosenSlots[e.target.value] = true; else delete chosenSlots[e.target.value]; renderSlots(); }
@@ -149,6 +161,7 @@ $('add').onclick = function () {
     showMsg(r.text, r.failed ? 'err' : 'info');
     chosenStaff = '';
     $('name').value = '';
+    $('partnerPick').value = '';
     $('phone').value = '';
     renderStaff();
   }).withFailureHandler(function (e) { $('add').disabled = false; showMsg(e.message); }).manualApplyAdd(req);

@@ -823,7 +823,9 @@ function manualApplyInit() {
   var staff = staffRecords_().filter(function (s) { return s.userId && s.lastName; }).map(function (s) {
     return { userId: s.userId, name: fullName_(s), kana: str_(s.lastNameKana) + ' ' + str_(s.firstNameKana), status: s.status, blocked: !!s.blocked };
   });
-  return { slots: slots, staff: staff, today: ymd_(now) };
+  // LINE 未登録の人を、取引先（freee から読み込んだ「取引先一覧」）から選べるように
+  var partners = partnerList_().map(function (p) { return str_(p.name); });
+  return { slots: slots, staff: staff, partners: partners, today: ymd_(now) };
 }
 
 /** 選んだ日程（複数可）に1人を追加する。追加できなかった日程は理由を返し、ほかの日程は追加する */
