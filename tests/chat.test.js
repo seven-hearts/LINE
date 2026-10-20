@@ -29,21 +29,24 @@ test('最初の質問は姓', () => {
   assert.match(m[0].text, /「姓」/);
 });
 
-test('姓→名の順に聞き、答えるとフォームのボタンが届く', () => {
-  let { res, state } = run(['山田']);
-  assert.strictEqual(state.step, 'firstName');
-  assert.match(res.messages[0].text, /「名」/);
-
-  ({ res, state } = run(['山田', '花子']));
+test('姓だけ聞き、答えるとすぐフォームのボタンが届く', () => {
+  const { res, state } = run(['山田']);
   assert.strictEqual(state.step, 'form');
   assert.strictEqual(state.data.lastName, '山田');
-  assert.strictEqual(state.data.firstName, '花子');
+  assert.strictEqual(state.data.firstName, undefined);
   const m = res.messages[0];
   assert.strictEqual(m.type, 'template');
-  assert.match(m.template.text, /山田 花子 さん/);
+  assert.match(m.template.text, /^山田 さん、ありがとうございます！\n続き（下のお名前・連絡先/);
   assert.ok(m.template.text.length <= 160);
   assert.strictEqual(m.template.actions[0].uri, 'https://liff.line.me/2011864173-MxilvLoL');
   assert.ok(m.template.actions[0].label.length <= 20);
+});
+
+test('以前の流れで「名」を聞かれている途中の人も、答えればフォームへ', () => {
+  const state = { step: 'firstName', data: { lastName: '山田' }, startedAt: 0 };
+  const res = ctx.chatAnswer_(state, { text: '花子' });
+  assert.strictEqual(res.state.step, 'form');
+  assert.match(res.messages[0].template.text, /山田 花子 さん/);
 });
 
 test('姓の質問にフルネームが送られたら姓と名に分ける', () => {
@@ -54,16 +57,16 @@ test('姓の質問にフルネームが送られたら姓と名に分ける', ()
 });
 
 test('空・長すぎる回答は聞き直す', () => {
-  let { res, state } = run(['山田', ' ']);
-  assert.strictEqual(state.step, 'firstName');
-  assert.match(res.messages[0].text, /名を入力してください/);
+  let { res, state } = run([' ']);
+  assert.strictEqual(state.step, 'lastName');
+  assert.match(res.messages[0].text, /姓を入力してください/);
   ({ res, state } = run(['あ'.repeat(21)]));
   assert.strictEqual(state.step, 'lastName');
   assert.match(res.messages[0].text, /姓を20文字以内/);
 });
 
 test('フォーム入力待ちのときはボタンを送り直す', () => {
-  const { res, state } = run(['山田', '花子', '登録']);
+  const { res, state } = run(['山田', '登録']);
   assert.strictEqual(state.step, 'form');
   assert.strictEqual(res.messages[0].type, 'template');
 });

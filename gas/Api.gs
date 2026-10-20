@@ -78,7 +78,10 @@ function apiMe_(userId) {
   }
   if (!rec) {
     var chat = loadChat_(userId);
-    if (chat && chat.data.lastName) draft = { lastName: chat.data.lastName, firstName: chat.data.firstName };
+    if (chat && chat.data.lastName) {
+      draft = { lastName: chat.data.lastName };
+      if (chat.data.firstName) draft.firstName = chat.data.firstName; // 姓と名を続けて送った人・以前の流れの人
+    }
   }
   return {
     ok: true,
