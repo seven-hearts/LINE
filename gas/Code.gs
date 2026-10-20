@@ -192,6 +192,7 @@ function setup() {
  * - 書類落選 → すぐに不採用通知を送る
  * - 不採用 → 変更時刻を記録（通知は runScheduler が翌日の午前10時に送る）
  * - 採用 → 書類提出の案内を送って「書類依頼済」に
+ * - 稼働可 → 「今後はこのLINEでお仕事を配信します」の案内を送る（1人1回）
  * - スタッフ用リッチメニューを作ってあれば、「採用」〜「稼働可」の人に付け、それ以外になった人から外す
  * シート「案件応募」の「状態」を変えたときは onApplyEdit_（JobsApp.gs）で確定・見送りの連絡を送る。
  */
@@ -236,6 +237,9 @@ function onStatusEdit(e) {
             // 書類のリマインドは、この案内から1日後・3日後に送る（採用をやり直したら数え直す）
             if (header['書類リマインド回数'] !== undefined) writeRecord_(REG_SHEET, rec.userId, { docRemindCount: 0, docRemindedAt: '' });
           }
+          break;
+        case STATUS.ACTIVE:
+          sendActiveNotice_(rec, header);
           break;
       }
       syncStaffRichMenu_(rec);

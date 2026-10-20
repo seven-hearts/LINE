@@ -538,3 +538,23 @@ test('書類未提出の人へのリマインド：案内から1日後・3日後
   assert.match(msgs[0].text, /^山田 花子 さん\n\n書類のご提出がまだのようです/);
   assert.strictEqual(msgs[1].type, 'template');
 });
+
+test('稼働可にしたら案内を1回だけ送る', () => {
+  const c = vm.createContext({});
+  for (const f of ['Options.gs', 'Validation.gs', 'Line.gs', 'Sheet.gs', 'Interview.gs']) {
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'gas', f), 'utf8'), c, { filename: f });
+  }
+  const pushes = [], writes = [];
+  c.pushMessage_ = (to, msgs) => { pushes.push([to, msgs]); return true; };
+  c.writeRecord_ = (sheet, id, f) => writes.push([id, f]);
+  c.now_ = () => '2026/10/20 12:00:00';
+  const header = { '稼働可の案内の送信日時': 50 };
+  c.sendActiveNotice_({ userId: 'U1' }, header);
+  assert.strictEqual(pushes.length, 1);
+  assert.strictEqual(pushes[0][1][0].text, '提出書類の確認が終わりました。\n\n今後はこちらのLINEにてお仕事を配信いたします。\n\nご希望の案件があれば日程をクリックの上、ご応募お願いします。');
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(writes[0])), ['U1', { activeNotifiedAt: '2026/10/20 12:00:00' }]);
+  c.sendActiveNotice_({ userId: 'U1', activeNotifiedAt: '2026/10/20 12:00:00' }, header); // 送信済み
+  c.sendActiveNotice_({ userId: 'U2', blocked: 'ブロック中' }, header);
+  c.sendActiveNotice_({ userId: 'U3' }, {}); // setup 前（列がない）
+  assert.strictEqual(pushes.length, 1);
+});

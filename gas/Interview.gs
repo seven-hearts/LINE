@@ -563,6 +563,23 @@ function runScheduler() {
   rebuildDirtyShiftSummaries_();
 }
 
+/** 「稼働可」にしたときに送る案内 */
+function activeNoticeText_() {
+  return '提出書類の確認が終わりました。\n\n' +
+    '今後はこちらのLINEにてお仕事を配信いたします。\n\n' +
+    'ご希望の案件があれば日程をクリックの上、ご応募お願いします。';
+}
+
+/** 「稼働可」の案内を送る（送信済みなら送らない。列がない＝setup 前なら、二重に送らないよう送らない） */
+function sendActiveNotice_(rec, header) {
+  if (header['稼働可の案内の送信日時'] === undefined || String(rec.activeNotifiedAt || '').trim() || rec.blocked) return;
+  if (pushMessage_(rec.userId, [textMessage_(activeNoticeText_())])) {
+    writeRecord_(REG_SHEET, rec.userId, { activeNotifiedAt: now_() });
+  } else {
+    writeRecord_(REG_SHEET, rec.userId, { adminMemo: appendMemo_(rec.adminMemo, '稼働可の案内を送れませんでした：' + lastLineError_) });
+  }
+}
+
 // ---- 書類未提出の人へのリマインド ----
 
 /** 書類提出の案内から何時間後にリマインドを送るか（1日後・3日後）。全部送ったら、その1日後に担当者へメール */
