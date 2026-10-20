@@ -31,10 +31,11 @@
 <body>
   <div id="msg" class="msg"></div>
 
-  <h2>① 日程</h2>
+  <h2>① 日程（複数選べます） <span class="hint" id="slotCount"></span></h2>
   <div class="row"><input type="text" id="slotSearch" placeholder="タイトル・日付・取引先で絞り込み" style="width:280px">
-    <label><input type="checkbox" id="showPast"> 過ぎた日程も出す（2か月前まで）</label></div>
-  <select id="slot" size="7"></select>
+    <label><input type="checkbox" id="showPast"> 過ぎた日程も出す（2か月前まで）</label>
+    <button type="button" id="slotClear" style="padding:3px 10px;font-size:12px">選択を外す</button></div>
+  <div class="list" id="slotList"></div>
 
   <h2>② スタッフ</h2>
   <div class="row">
@@ -68,6 +69,7 @@
 <script>
 var data = { slots: [], staff: [] };
 var chosenStaff = '';
+var chosenSlots = {};
 function $(id) { return document.getElementById(id); }
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
 function norm(s) { return String(s || '').replace(/\s/g, '').toLowerCase(); }
@@ -75,12 +77,21 @@ function showMsg(text, kind) { var m = $('msg'); m.textContent = text; m.classNa
 function who() { return document.querySelector('input[name=who]:checked').value; }
 function status() { return document.querySelector('input[name=status]:checked').value; }
 
+function selectedSlots() {
+  // 画面の並び（日付順）で返す
+  return data.slots.filter(function (s) { return chosenSlots[s.slotId]; }).map(function (s) { return s.slotId; });
+}
 function renderSlots() {
-  var q = norm($('slotSearch').value), past = $('showPast').checked, keep = $('slot').value;
-  var list = data.slots.filter(function (s) { return (past || !s.past) && (!q || norm(s.label + s.client).indexOf(q) >= 0); });
-  $('slot').innerHTML = list.length ? list.map(function (s) {
-    return '<option value="' + esc(s.slotId) + '"' + (s.slotId === keep ? ' selected' : '') + '>' + esc(s.label) + (s.client ? '（' + esc(s.client) + '）' : '') + '</option>';
-  }).join('') : '<option value="" disabled>該当する日程がありません</option>';
+  var q = norm($('slotSearch').value), past = $('showPast').checked;
+  var list = data.slots.filter(function (s) { return chosenSlots[s.slotId] || ((past || !s.past) && (!q || norm(s.label + s.client).indexOf(q) >= 0)); });
+  $('slotList').innerHTML = list.map(function (s) {
+    var on = !!chosenSlots[s.slotId];
+    return '<label class="item' + (on ? ' on' : '') + '"><input type="checkbox" name="slot" value="' + esc(s.slotId) + '"' + (on ? ' checked' : '') + '>' +
+      '<span>' + esc(s.label) + '</span><span class="sub">' + esc(s.client) + '</span></label>';
+  }).join('') || '<div class="item sub">該当する日程がありません</div>';
+  var n = selectedSlots().length;
+  $('slotCount').textContent = n ? n + '件選択中' : '';
+  $('add').textContent = n > 1 ? n + '件の日程に追加する' : '追加する';
 }
 function renderStaff() {
   var q = norm($('staffSearch').value);
@@ -106,15 +117,17 @@ google.script.run.withSuccessHandler(function (r) {
 
 $('slotSearch').oninput = renderSlots;
 $('showPast').onchange = renderSlots;
+$('slotClear').onclick = function () { chosenSlots = {}; renderSlots(); };
 $('staffSearch').oninput = renderStaff;
 document.addEventListener('change', function (e) {
   if (e.target.name === 'staff') { chosenStaff = e.target.value; renderStaff(); }
+  if (e.target.name === 'slot') { if (e.target.checked) chosenSlots[e.target.value] = true; else delete chosenSlots[e.target.value]; renderSlots(); }
   if (e.target.name === 'who' || e.target.name === 'status') updateForm();
 });
 
 $('add').onclick = function () {
-  var req = { slotId: $('slot').value, status: status() };
-  if (!req.slotId) return showMsg('日程を選んでください');
+  var req = { slotIds: selectedSlots(), status: status() };
+  if (!req.slotIds.length) return showMsg('日程を選んでください');
   if (who() === 'line') {
     if (!chosenStaff) return showMsg('スタッフを選んでください');
     req.userId = chosenStaff;
@@ -127,7 +140,7 @@ $('add').onclick = function () {
   $('add').disabled = true;
   google.script.run.withSuccessHandler(function (r) {
     $('add').disabled = false;
-    showMsg(r.text, 'info');
+    showMsg(r.text, r.failed ? 'err' : 'info');
     chosenStaff = '';
     $('name').value = '';
     $('phone').value = '';

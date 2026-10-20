@@ -777,32 +777,55 @@ function manualApplyInit() {
   return { slots: slots, staff: staff, today: ymd_(now) };
 }
 
+/** 選んだ日程（複数可）に1人を追加する。追加できなかった日程は理由を返し、ほかの日程は追加する */
 function manualApplyAdd(req) {
   req = req || {};
+  var slotIds = (req.slotIds || (req.slotId ? [req.slotId] : [])).filter(Boolean);
+  if (!slotIds.length) throw new UserError('日程を選んでください');
   var staff = req.userId ? readRecord_(REG_SHEET, req.userId) : null;
   if (req.userId && !staff) throw new UserError('選んだスタッフが「スタッフ登録」に見つかりません');
-  var result = withLock_(function () {
-    var slot = findSlot_(req.slotId);
+  var results = withLock_(function () {
+    var jobs = readAll_(JOB_SHEET);
     var apps = readAll_(APPLY_SHEET).map(function (x) { return x.rec; });
-    var error = manualApplyError_(apps, slot && slot.rec, staff, req);
-    if (error) throw new UserError(error);
-    var rec = manualApplyRecord_(slot.rec, staff, req, now_());
-    var row = appendRecords_(APPLY_SHEET, [rec]);
-    var count = apps.filter(function (a) { return a.slotId === rec.slotId && a.status !== APPLY_STATUS.CANCELLED; }).length + 1;
-    updateCells_(JOB_SHEET, slot.row, { applied: count });
-    return { row: row, rec: rec };
+    return slotIds.map(function (id) {
+      var slot = null;
+      for (var i = 0; i < jobs.length && !slot; i++) if (jobs[i].rec.slotId === id) slot = jobs[i];
+      var label = slot ? slotLabel_(slot.rec) + ' ' + str_(slot.rec.title) : id;
+      var error = manualApplyError_(apps, slot && slot.rec, staff, req);
+      if (error) return { label: label, error: error };
+      var rec = manualApplyRecord_(slot.rec, staff, req, now_());
+      var row = appendRecords_(APPLY_SHEET, [rec]);
+      apps.push(rec); // 同じ日に2つ確定にしないよう、続きの判定に入れる
+      var count = apps.filter(function (a) { return a.slotId === rec.slotId && a.status !== APPLY_STATUS.CANCELLED; }).length;
+      updateCells_(JOB_SHEET, slot.row, { applied: count });
+      return { label: label, row: row, rec: rec };
+    });
   });
-  var rec = result.rec;
-  var sent = false;
-  if (staff && req.notify && rec.status === APPLY_STATUS.CONFIRMED) {
-    sent = !!pushMessage_(rec.userId, [textMessage_(applyConfirmedText_(rec))]);
-    updateCells_(APPLY_SHEET, result.row, sent ? { notifiedAt: now_() }
-      : { notifiedAt: '連絡なし（手動で追加）', adminMemo: appendMemo_(rec.adminMemo, '確定の連絡を送れませんでした：' + lastLineError_) });
+
+  // 確定の連絡は、まとめて1回で送る（1回に5通まで）
+  var added = results.filter(function (r) { return r.rec; });
+  var notify = staff && req.notify && req.status === APPLY_STATUS.CONFIRMED && added.length;
+  var sent = true;
+  if (notify) {
+    var texts = added.map(function (r) { return textMessage_(applyConfirmedText_(r.rec)); });
+    for (var i = 0; i < texts.length; i += 5) {
+      if (!pushMessage_(staff.userId, texts.slice(i, i + 5))) sent = false;
+    }
+    added.forEach(function (r) {
+      updateCells_(APPLY_SHEET, r.row, sent ? { notifiedAt: now_() }
+        : { notifiedAt: '連絡なし（手動で追加）', adminMemo: appendMemo_(r.rec.adminMemo, '確定の連絡を送れませんでした：' + lastLineError_) });
+    });
   }
+  var name = staff ? fullName_(staff) : str_(req.name);
+  var lines = results.map(function (r) {
+    return r.rec ? '✓ ' + r.label + '（' + r.row + '行目）' : '✗ ' + r.label + '：' + r.error;
+  });
   return {
-    row: result.row,
-    text: rec.name + ' さんを「' + rec.status + '」で追加しました（' + result.row + '行目）。' +
-      (staff && req.notify && rec.status === APPLY_STATUS.CONFIRMED ? (sent ? 'LINE で確定の連絡を送りました。' : 'LINE の連絡は送れませんでした（管理メモを確認してください）。') : '')
+    ok: added.length,
+    failed: results.length - added.length,
+    text: name + ' さんを「' + req.status + '」で' + added.length + '件追加しました。' +
+      (notify ? (sent ? 'LINE で確定の連絡を送りました。' : 'LINE の連絡は送れませんでした（管理メモを確認してください）。') : '') +
+      '\n' + lines.join('\n')
   };
 }
 
