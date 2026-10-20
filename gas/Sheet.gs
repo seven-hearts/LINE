@@ -10,6 +10,8 @@ var CHAT_SHEET = '登録途中'; // チャットで回答中の人（途中で�
 var SHIFT_SHEET = 'シフト提出'; // 毎月のシフト（出勤できる日）。1人1か月1行
 var LOG_SHEET = 'エラーログ'; // フォーム・LINE・自動送信で起きたエラー（新しいものが下）
 var LOG_MAX_ROWS = 1000;
+var SEND_LOG_SHEET = '送信履歴'; // このシステムから LINE で送ったメッセージ（1通・1人1行。新しいものが下）
+var SEND_LOG_MAX_ROWS = 20000;    // これを超えたら古いものから消す
 var JOB_SHEET = '案件一覧';   // お客様からの案件（Jobs.gs）
 var APPLY_SHEET = '案件応募'; // LINE で配信した案件への応募
 var IMPORT_SHEET = '案件取込履歴';
@@ -281,6 +283,15 @@ TEXT_COLUMNS[JOB_SHEET] = ['日程', '開始時間', '終了時間', '曜日', '
 var spreadsheetCache_ = null;
 
 /** 1回の実行の中では、スプレッドシートを開くのは1回だけにする（開く処理は時間がかかる） */
+COLUMNS[SEND_LOG_SHEET] = [
+  ['at', '送信日時'],
+  ['kind', '種類'],        // 個別（プッシュ）・一斉（案件配信）・返信
+  ['name', '宛先'],        // スタッフ登録の氏名（未登録なら LINE表示名など）
+  ['userId', 'LINEユーザーID'],
+  ['content', '内容'],
+  ['result', '結果']
+];
+
 COLUMNS[LOG_SHEET] = [
   ['at', '日時'],
   ['kind', '場所'],
@@ -299,6 +310,92 @@ function logError_(kind, userId, err) {
   } catch (e) {
     console.error('logError_ failed', e);
   }
+}
+
+/**
+ * LINE で送ったメッセージを「送信履歴」に残す（Official Account Manager のチャットには API で送った分が出ないため）。
+ * 記録に失敗しても送信は止めない。
+ * @param {string} kind 個別・一斉・返信
+ * @param {string[]} userIds
+ * @param {Array} messages LINE のメッセージ
+ * @param {boolean} ok 送れたか
+ */
+function logSend_(kind, userIds, messages, ok) {
+  try {
+    var ss = spreadsheet_();
+    var sh = ss.getSheetByName(SEND_LOG_SHEET) || ensureSheet_(ss, SEND_LOG_SHEET);
+    var header = headerMap_(sh);
+    var names = sendLogNames_();
+    var content = messagesSummary_(messages).slice(0, 5000);
+    var result = ok ? '送信済み' : '送れませんでした：' + lastLineError_;
+    var at = now_();
+    var width = sh.getLastColumn();
+    var rows = userIds.map(function (id) {
+      var rec = { at: at, kind: kind, name: names[id] || '', userId: id, content: content, result: result };
+      var v = new Array(width).fill('');
+      Object.keys(rec).forEach(function (k) {
+        var i = header[labelOf_(SEND_LOG_SHEET, k)];
+        if (i !== undefined) v[i] = cellValue_(rec[k]);
+      });
+      return v;
+    });
+    if (!rows.length) return;
+    var start = sh.getLastRow() + 1;
+    var need = start + rows.length - 1 - sh.getMaxRows();
+    if (need > 0) sh.insertRowsAfter(sh.getMaxRows(), need);
+    sh.getRange(start, 1, rows.length, width).setValues(rows);
+    if (sh.getLastRow() > SEND_LOG_MAX_ROWS + 1000) sh.deleteRows(2, 1000);
+  } catch (err) {
+    console.error('logSend_ failed', err && err.stack || err);
+  }
+}
+
+/** LINEユーザーID → 名前（1回の実行の中で1度だけ読む） */
+var sendLogNames__ = null;
+function sendLogNames_() {
+  if (sendLogNames__) return sendLogNames__;
+  var names = {};
+  [[CHAT_SHEET, function (r) { return r.name || r.lineName; }], [REG_SHEET, function (r) { return [r.lastName, r.firstName].filter(Boolean).join(' ') || r.lineName; }]]
+    .forEach(function (p) {
+      var sh = spreadsheet_().getSheetByName(p[0]);
+      if (!sh || sh.getLastRow() < 2) return;
+      var header = headerMap_(sh);
+      sh.getRange(2, 1, sh.getLastRow() - 1, sh.getLastColumn()).getValues().forEach(function (v) {
+        var r = rowToRecord_(p[0], header, v);
+        if (r.userId && p[1](r)) names[r.userId] = p[1](r);
+      });
+    });
+  sendLogNames__ = names;
+  return names;
+}
+
+/** メッセージ → 読める文章（カードやボタンは、中の文字とボタン名を並べる） */
+function messagesSummary_(messages) {
+  return (messages || []).map(function (m) {
+    if (m.type === 'text') return m.text;
+    if (m.type === 'image') return '［画像］';
+    if (m.type === 'template') {
+      var t = m.template || {};
+      return [t.title, t.text].filter(Boolean).join('\n') + buttonsText_((t.actions || []));
+    }
+    if (m.type === 'flex') {
+      var texts = [], buttons = [];
+      (function walk(node) {
+        if (!node || typeof node !== 'object') return;
+        if (node.type === 'text' && node.text) texts.push(node.text);
+        if (node.type === 'button' && node.action) buttons.push(node.action);
+        ['header', 'hero', 'body', 'footer'].forEach(function (k) { walk(node[k]); });
+        (node.contents || []).forEach(walk);
+      })(m.contents);
+      return texts.join('\n') + buttonsText_(buttons);
+    }
+    return m.altText || '［' + m.type + '］';
+  }).join('\n―――\n');
+}
+
+function buttonsText_(actions) {
+  var labels = actions.map(function (a) { return a.label; }).filter(Boolean);
+  return labels.length ? '\n［ボタン］' + labels.join('／') : '';
 }
 
 function spreadsheet_() {

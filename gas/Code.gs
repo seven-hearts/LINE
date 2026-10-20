@@ -98,7 +98,7 @@ function doPost(e) {
  * コードの版。コードを変えるたびに更新する。
  * checkSettings がウェブアプリ（デプロイ済み）の版と比べて、デプロイし忘れを見つける。
  */
-var APP_VERSION = '2026-10-20.4';
+var APP_VERSION = '2026-10-20.5';
 
 function doGet() {
   return json_({ ok: true, service: 'sevenhearts-staff-registration', version: APP_VERSION });
@@ -138,6 +138,7 @@ function setup() {
   ensureSheet_(ss, CHAT_SHEET);
   ensureSheet_(ss, SHIFT_SHEET);
   ensureSheet_(ss, LOG_SHEET);
+  ensureSheet_(ss, SEND_LOG_SHEET);
   ensureSheet_(ss, MANUAL_LOG_SHEET);
   ensureRichMenuSheet_(ss);
   setupJobSheets_(ss);

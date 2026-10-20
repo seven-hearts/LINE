@@ -20,6 +20,7 @@ function handleWebhook_(body) {
 function handleEvent_(ev) {
   if (!ev.source || ev.source.type !== 'user' || !ev.source.userId) return;
   var userId = ev.source.userId;
+  replyUserId_ = userId;
 
   switch (ev.type) {
     case 'follow':

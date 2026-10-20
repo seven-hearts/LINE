@@ -1118,3 +1118,48 @@ test('案件一覧の応募人数・確定人数を数え直す（変わった�
     { row: 2, fields: { applied: 0, confirmed: 0 } }, { row: 3, fields: { applied: 0, confirmed: 0 } }, { row: 4, fields: { applied: 0 } }
   ]);
 });
+
+test('送信履歴：メッセージを読める文章にする（カード・ボタンも）', () => {
+  const rows = rowsOf([kobe]);
+  rows.forEach((r) => { r.staffPay = '時給1,200円'; });
+  const text = ctx.messagesSummary_(plain(ctx.jobMessages_([rows])));
+  assert.match(text, /^お仕事のご案内\n神戸港フォークリフト荷役技能向上大会\n💴 時給1,200円/);
+  assert.match(text, /\n［ボタン］10\/8\(木\) 8:30〜15:30$/);
+  assert.strictEqual(ctx.messagesSummary_([ctx.textMessage_('こんにちは'), { type: 'image' }]), 'こんにちは\n―――\n［画像］');
+  assert.strictEqual(ctx.messagesSummary_([ctx.buttonMessage_('書類を出してください', '書類を提出する', 'https://example.com')]),
+    '書類を出してください\n［ボタン］書類を提出する');
+});
+
+test('送信履歴：1人1行で記録し、名前を付ける（記録に失敗しても止めない）', () => {
+  const c = vm.createContext({ console: { error: () => {} } });
+  for (const f of ['Options.gs', 'Validation.gs', 'Line.gs', 'Sheet.gs']) {
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'gas', f), 'utf8'), c, { filename: f });
+  }
+  const grids = {
+    '送信履歴': [c.COLUMNS[c.SEND_LOG_SHEET].map((x) => x[1])],
+    'スタッフ登録': [['LINEユーザーID', '姓', '名'], ['U1', '山田', '花子']],
+    '登録途中': [['LINEユーザーID', '氏名', 'LINE表示名'], ['U2', '', 'さとう']]
+  };
+  const sheetOf = (name) => grids[name] && ({
+    getLastRow: () => grids[name].length,
+    getLastColumn: () => grids[name][0].length,
+    getMaxRows: () => 100,
+    getRange: (r, col, nr, nc) => ({
+      getValues: () => grids[name].slice(r - 1, r - 1 + nr).map((row) => row.slice(col - 1, col - 1 + nc)),
+      setValues: (vals) => vals.forEach((v, k) => { grids[name][r - 1 + k] = v; })
+    })
+  });
+  c.spreadsheet_ = () => ({ getSheetByName: sheetOf });
+  c.now_ = () => '2026/10/20 12:00:00';
+  c.logSend_('一斉', ['U1', 'U2', 'U3'], [c.textMessage_('案件です')], true);
+  const log = grids['送信履歴'];
+  assert.strictEqual(log.length, 4);
+  assert.deepStrictEqual(Array.from(log[1]), ['2026/10/20 12:00:00', '一斉', '山田 花子', 'U1', '案件です', '送信済み']);
+  assert.strictEqual(log[2][2], 'さとう');
+  assert.strictEqual(log[3][2], '');
+  c.lastLineError_ = '今月のメッセージ送信数の上限に達しました';
+  c.logSend_('個別', ['U1'], [c.textMessage_('x')], false);
+  assert.strictEqual(log[4][5], '送れませんでした：今月のメッセージ送信数の上限に達しました');
+  c.spreadsheet_ = () => { throw new Error('no sheet'); };
+  c.logSend_('個別', ['U1'], [c.textMessage_('x')], true); // 例外を外に出さない
+});

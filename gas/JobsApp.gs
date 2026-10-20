@@ -638,7 +638,7 @@ function jobSend(req) {
     var messages = jobMessages_(b.groups);
     for (var i = 0; i < b.userIds.length; i += MULTICAST_LIMIT) {
       var to = b.userIds.slice(i, i + MULTICAST_LIMIT);
-      if (lineRequest_('post', '/message/multicast', { to: to, messages: messages })) {
+      if (multicastMessage_(to, messages)) {
         sent += to.length;
         b.groups.forEach(function (rows) { sentPerCase[rows[0].caseId] = (sentPerCase[rows[0].caseId] || 0) + to.length; });
       } else {

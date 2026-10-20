@@ -46,13 +46,27 @@ function lineRequest_(method, path, payload) {
   return res.getContentText() ? JSON.parse(res.getContentText()) : {};
 }
 
+/** 返信の相手（Webhook の handleEvent_ が設定する。送信履歴に残すため） */
+var replyUserId_ = '';
+
 function replyMessage_(replyToken, messages) {
-  return lineRequest_('post', '/message/reply', { replyToken: replyToken, messages: messages });
+  var res = lineRequest_('post', '/message/reply', { replyToken: replyToken, messages: messages });
+  if (replyUserId_) logSend_('返信', [replyUserId_], messages, !!res);
+  return res;
 }
 
 /** プッシュメッセージは月の無料通数にカウントされます */
 function pushMessage_(userId, messages) {
-  return lineRequest_('post', '/message/push', { to: userId, messages: messages });
+  var res = lineRequest_('post', '/message/push', { to: userId, messages: messages });
+  logSend_('個別', [userId], messages, !!res);
+  return res;
+}
+
+/** 一斉送信（最大500人）。人数ぶん月の無料通数にカウントされます */
+function multicastMessage_(userIds, messages) {
+  var res = lineRequest_('post', '/message/multicast', { to: userIds, messages: messages });
+  logSend_('一斉', userIds, messages, !!res);
+  return res;
 }
 
 function getLineProfile_(userId) {
