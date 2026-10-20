@@ -84,6 +84,8 @@ COLUMNS[REG_SHEET] = [
   ['reminderSentAt', 'リマインド送信日時'],
   ['callSentAt', '通話案内の送信日時'],
   ['rejectNotifiedAt', '不採用通知の送信日時'],
+  ['docRemindCount', '書類リマインド回数'],      // 書類依頼済のまま提出がない人へのリマインド（3 は担当者へ通知済み）
+  ['docRemindedAt', '書類リマインド送信日時'],
   ['shiftRequestedMonth', 'シフト提出の案内（送信済みの月）'],
   ['calendarEventId', 'カレンダー予定ID'],
   ['calendarAt', 'カレンダーに登録した面接日時'],

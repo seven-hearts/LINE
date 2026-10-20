@@ -98,7 +98,7 @@ function doPost(e) {
  * コードの版。コードを変えるたびに更新する。
  * checkSettings がウェブアプリ（デプロイ済み）の版と比べて、デプロイし忘れを見つける。
  */
-var APP_VERSION = '2026-10-20.1';
+var APP_VERSION = '2026-10-20.2';
 
 function doGet() {
   return json_({ ok: true, service: 'sevenhearts-staff-registration', version: APP_VERSION });
@@ -231,7 +231,11 @@ function onStatusEdit(e) {
               'お仕事を始めていただくために、下のボタンから書類をご提出ください。'),
             onboardingButton_()
           ]);
-          if (sent) setStatus_(rec.userId, STATUS.DOC_REQUESTED);
+          if (sent) {
+            setStatus_(rec.userId, STATUS.DOC_REQUESTED);
+            // 書類のリマインドは、この案内から1日後・3日後に送る（採用をやり直したら数え直す）
+            if (header['書類リマインド回数'] !== undefined) writeRecord_(REG_SHEET, rec.userId, { docRemindCount: 0, docRemindedAt: '' });
+          }
           break;
       }
       syncStaffRichMenu_(rec);

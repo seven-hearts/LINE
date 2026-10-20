@@ -428,6 +428,7 @@ function onOpen() {
     .addItem('freee の取引先を読み込む', 'freeeLoadPartners')
     .addSeparator()
     .addItem('登録途中の人にリマインドを今すぐ送る', 'sendChatRemindersNow')
+    .addItem('書類未提出の人にリマインドを今すぐ送る', 'sendDocRemindersNow')
     .addSeparator()
     .addItem('不採用通知の送信予定を確認', 'showPendingNotices')
     .addItem('不採用通知を今すぐ送る', 'sendRejectionsNow')
@@ -495,6 +496,7 @@ function runScheduler() {
   if (cache && cache.get('cal:all')) useCalendar = false;
   // 送信済みの月を書く列がないと、毎分送り直してしまうため送らない（setup を実行すると列ができる）
   var canRequestShift = hasShiftRequestColumn_(header);
+  var docRemind = canDocRemind_(header);
 
   rows.forEach(function (values) {
     var rec = rowToRecord_(REG_SHEET, header, values);
@@ -538,6 +540,15 @@ function runScheduler() {
         logError_('自動送信：' + action, rec.userId, err);
       }
     });
+    var docAction = docRemind ? docReminderAction_(rec, now) : '';
+    if (docAction) {
+      try {
+        runDocReminder_(rec, docAction);
+      } catch (err) {
+        console.error('doc reminder failed', rec.userId, err && err.stack || err);
+        logError_('書類のリマインド', rec.userId, err);
+      }
+    }
     if (canRequestShift && shiftRequestDue_(rec, now)) {
       try {
         sendShiftRequest_(rec, nextShiftMonth_(now));
@@ -550,6 +561,84 @@ function runScheduler() {
   runJobSchedulerSafe_(now);
   runChatRemindersSafe_(now);
   rebuildDirtyShiftSummaries_();
+}
+
+// ---- 書類未提出の人へのリマインド ----
+
+/** 書類提出の案内から何時間後にリマインドを送るか（1日後・3日後）。全部送ったら、その1日後に担当者へメール */
+var DOC_REMIND_AFTER_HOURS = [24, 72];
+var DOC_ALERT_AFTER_HOURS = 96;
+
+/**
+ * 「書類依頼済」の人に、今することがあるか。
+ * @return {string} 'remind'（リマインドを送る）/ 'alert'（担当者にメール）/ ''
+ */
+function docReminderAction_(rec, now) {
+  if (rec.status !== STATUS.DOC_REQUESTED || !rec.userId || rec.blocked) return '';
+  var base = chatTime_(rec.statusChangedAt);
+  if (!base) return '';
+  if (now.getHours() < CHAT_REMIND_HOURS[0] || now.getHours() >= CHAT_REMIND_HOURS[1]) return '';
+  var count = parseInt(rec.docRemindCount, 10) || 0;
+  var elapsed = (now.getTime() - base.getTime()) / 3600000;
+  // 前のリマインドから1日はあける（ずっと前から書類依頼済の人に、続けて送らないように）
+  var prev = chatTime_(rec.docRemindedAt);
+  if (prev && now.getTime() - prev.getTime() < 24 * 3600000) return '';
+  if (count < DOC_REMIND_AFTER_HOURS.length) return elapsed >= DOC_REMIND_AFTER_HOURS[count] ? 'remind' : '';
+  if (count === DOC_REMIND_AFTER_HOURS.length && elapsed >= DOC_ALERT_AFTER_HOURS) return 'alert';
+  return '';
+}
+
+function docReminderMessages_(rec) {
+  return [
+    textMessage_(fullName_(rec) + ' さん\n\n書類のご提出がまだのようです。\nお仕事を始めていただくために、下のボタンからご提出をお願いします（5分ほどで終わります）。\n\n' +
+      'ご不明な点があれば、このトークでお気軽にお問い合わせください。'),
+    onboardingButton_()
+  ];
+}
+
+/** リマインドを送る・担当者に知らせる（runScheduler から、またはメニューから force で） */
+function runDocReminder_(rec, action) {
+  var count = parseInt(rec.docRemindCount, 10) || 0;
+  if (action === 'alert') {
+    writeRecord_(REG_SHEET, rec.userId, { docRemindCount: count + 1 });
+    notifyAdmin_('書類の提出がありません（リマインドを' + count + '回送信済み。電話などで連絡してください）', fullName_(rec));
+    return false;
+  }
+  var ok = pushMessage_(rec.userId, docReminderMessages_(rec));
+  // 送れなかったときも回数は進める（1分ごとに送り直し続けないように）
+  writeRecord_(REG_SHEET, rec.userId, { docRemindCount: count + 1, docRemindedAt: now_() });
+  if (!ok) logError_('書類のリマインド', rec.userId, new Error(lastLineError_ || 'LINE への送信に失敗しました'));
+  return !!ok;
+}
+
+/** 列がそろっていて（setup 済み）、DOC_REMINDER が off でなければ送る */
+function canDocRemind_(header) {
+  if (header['書類リマインド回数'] === undefined || header['書類リマインド送信日時'] === undefined) return false;
+  return String(PropertiesService.getScriptProperties().getProperty('DOC_REMINDER') || '').trim().toLowerCase() !== 'off';
+}
+
+/** メニュー「書類未提出の人にリマインドを今すぐ送る」 */
+function sendDocRemindersNow() {
+  var ui = SpreadsheetApp.getUi();
+  var sh = sheet_(REG_SHEET);
+  var header = headerMap_(sh);
+  if (header['書類リマインド回数'] === undefined) return ui.alert('先に Apps Script で setup を実行してください（リマインドの記録用の列を追加します）。');
+  var now = new Date();
+  var targets = readAll_(REG_SHEET).map(function (x) { return x.rec; }).filter(function (r) {
+    if (r.status !== STATUS.DOC_REQUESTED || !r.userId || r.blocked) return false;
+    var prev = chatTime_(r.docRemindedAt);
+    return !(prev && now - prev < 3600000); // 1時間以内に送った人には送らない
+  });
+  if (!targets.length) return ui.alert('リマインドを送る人はいません（書類依頼済の人がいないか、1時間以内に送っています）。');
+  var answer = ui.alert('書類未提出の人にリマインドを送る',
+    'ステータスが「書類依頼済」の ' + targets.length + ' 人に、書類の提出をお願いするメッセージを今すぐ送ります。よろしいですか？',
+    ui.ButtonSet.OK_CANCEL);
+  if (answer !== ui.Button.OK) return;
+  var sent = 0;
+  targets.forEach(function (r) {
+    try { if (runDocReminder_(r, 'remind')) sent++; } catch (err) { logError_('書類のリマインド', r.userId, err); }
+  });
+  ui.alert(sent + ' 人に送りました。「書類リマインド送信日時」の列で確認できます。');
 }
 
 /** 登録途中の人へのリマインド（スクリプト プロパティ CHAT_REMINDER が off なら送らない） */

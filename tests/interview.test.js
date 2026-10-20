@@ -506,3 +506,35 @@ test('スタッフ登録：書類落選・不採用・退会の行をグレー�
   assert.strictEqual(built.bg, '#e0e0e0');
   assert.deepStrictEqual([built.ranges[0].r, built.ranges[0].c, built.ranges[0].nr, built.ranges[0].nc], [2, 1, 999, 30]);
 });
+
+test('書類未提出の人へのリマインド：案内から1日後・3日後、その1日後に担当者へ', () => {
+  const c = vm.createContext({ PropertiesService: { getScriptProperties: () => ({ getProperties: () => ({ LIFF_ID: 'L' }), getProperty: () => '' }) } });
+  for (const f of ['Options.gs', 'Validation.gs', 'Line.gs', 'Sheet.gs', 'Chat.gs', 'Interview.gs', 'Code.gs']) {
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'gas', f), 'utf8'), c, { filename: f });
+  }
+  const rec = (o) => Object.assign({ userId: 'U1', status: '書類依頼済', statusChangedAt: '2026/10/20 15:00:00', docRemindCount: '' }, o);
+  const at = (d, h, m) => new Date(2026, 9, d, h, m || 0);
+  const act = (o, now) => c.docReminderAction_(rec(o), now);
+  assert.strictEqual(act({}, at(21, 14, 59)), '');
+  assert.strictEqual(act({}, at(21, 15)), 'remind');           // 1日後
+  assert.strictEqual(act({}, at(21, 20)), '');                 // 20時以降は送らない
+  assert.strictEqual(act({ docRemindCount: 1 }, at(22, 15)), '');
+  assert.strictEqual(act({ docRemindCount: 1 }, at(23, 15)), 'remind'); // 3日後
+  assert.strictEqual(act({ docRemindCount: 2 }, at(23, 16)), '');
+  assert.strictEqual(act({ docRemindCount: 2 }, at(24, 15)), 'alert');  // 4日後に担当者へ
+  assert.strictEqual(act({ docRemindCount: 3 }, at(30, 15)), '');
+  // 夜に採用した人は、翌々日ではなく翌日の朝10時から送る
+  assert.strictEqual(act({ statusChangedAt: '2026/10/20 22:00:00' }, at(21, 21)), '');
+  assert.strictEqual(act({ statusChangedAt: '2026/10/20 22:00:00' }, at(22, 10)), 'remind');
+  // ずっと前から書類依頼済の人：続けては送らず、1日ずつあける
+  const old = { statusChangedAt: '2026/09/01 12:00:00' };
+  assert.strictEqual(act(old, at(21, 12)), 'remind');
+  assert.strictEqual(act(Object.assign({}, old, { docRemindCount: 1, docRemindedAt: '2026/10/21 12:00:00' }), at(21, 12, 1)), '');
+  assert.strictEqual(act(Object.assign({}, old, { docRemindCount: 1, docRemindedAt: '2026/10/21 12:00:00' }), at(22, 12)), 'remind');
+  assert.strictEqual(act(Object.assign({}, old, { docRemindCount: 2, docRemindedAt: '2026/10/22 12:00:00' }), at(23, 12)), 'alert');
+  assert.strictEqual(act({ status: '書類提出済' }, at(25, 12)), '');
+  assert.strictEqual(act({ blocked: 'ブロック中' }, at(25, 12)), '');
+  const msgs = c.docReminderMessages_({ lastName: '山田', firstName: '花子' });
+  assert.match(msgs[0].text, /^山田 花子 さん\n\n書類のご提出がまだのようです/);
+  assert.strictEqual(msgs[1].type, 'template');
+});
