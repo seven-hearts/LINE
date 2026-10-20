@@ -387,12 +387,15 @@ function jobAmounts_(row, minHours, payBasis) {
 /**
  * 確認画面で直した案件 → シートの行（1日・1時間帯ごと）。
  * @param {Array} cases normalizeCase_ の形（画面で直したもの）
- * @param {{client: string, importId: string, paymentMonthsAfter: number}} opts
+ * @param {{client: string, importId: string, paymentMonthsAfter: number, caseIdPrefix: string, firstCaseNo: number}} opts
+ *   caseIdPrefix（「2026-10」）と firstCaseNo があれば、案件IDは「2026-10-0001」、枠IDは「2026-10-0001-01」
  */
 function jobRows_(cases, opts) {
   var rows = [];
+  var caseNo = 0;
   cases.forEach(function (c, ci) {
-    var caseId = opts.importId + '-' + (ci + 1);
+    if (!(c.shifts || []).length) return; // 日程のない案件は追加しない（通し番号も使わない）
+    var caseId = opts.caseIdPrefix ? caseIdOf_(opts.caseIdPrefix, opts.firstCaseNo + (caseNo++)) : opts.importId + '-' + (ci + 1);
     (c.shifts || []).forEach(function (s, si) {
       var d = parseYmd_(s.date);
       var row = {
@@ -430,7 +433,7 @@ function jobRows_(cases, opts) {
         prefecture: c.prefecture,
         genderReq: c.genderReq,
         caseId: caseId,
-        slotId: caseId + '-' + (si + 1),
+        slotId: opts.caseIdPrefix ? slotIdOf_(caseId, si + 1) : caseId + '-' + (si + 1),
         importId: opts.importId
       };
       var a = jobAmounts_(row, toNum_(c.minHours), c.payBasis);
@@ -958,9 +961,10 @@ function duplicateSlotFixes_(jobs, apps) {
     if (!id) return;
     if (!first[id]) { first[id] = j; return; }
     var base = str_(j.caseId) || id.replace(/-\d+$/, '');
+    var idOf = function (k) { return CASE_ID_RE.test(base) ? slotIdOf_(base, k) : base + '-' + k; };
     var n = 1;
-    while (used[base + '-' + n]) n++;
-    var newId = base + '-' + n;
+    while (used[idOf(n)]) n++;
+    var newId = idOf(n);
     used[newId] = true;
     out.jobs.push({ row: j._row, slotId: newId });
     // 1行目と日程・開始時間が違えば、この日程・時間の応募はこの行のもの
@@ -968,6 +972,73 @@ function duplicateSlotFixes_(jobs, apps) {
     apps.forEach(function (a) {
       if (a.slotId === id && key(a) === key(j)) out.apps.push({ row: a._row, slotId: newId });
     });
+  });
+  return out;
+}
+
+// ---- 案件ID・枠ID ----
+// 案件ID：「2026-10-0001」（登録した年・月と、その月の通し番号4桁）。枠ID：「2026-10-0001-01」（案件IDと日程の番号2桁）
+
+var CASE_ID_RE = /^(\d{4}-\d{2})-(\d{4})$/;
+
+function caseIdOf_(prefix, no) {
+  return prefix + '-' + ('000' + no).slice(-4);
+}
+
+function slotIdOf_(caseId, no) {
+  return caseId + '-' + (no < 10 ? '0' : '') + no;
+}
+
+/** その月（「2026-10」）の次の通し番号 */
+function nextCaseNo_(caseIds, prefix) {
+  var max = 0;
+  caseIds.forEach(function (id) {
+    var m = CASE_ID_RE.exec(str_(id));
+    if (m && m[1] === prefix) max = Math.max(max, +m[2]);
+  });
+  return max + 1;
+}
+
+/** 取込ID（yyMMddHHmmss）や日程 → 「2026-10」 */
+function caseIdPrefixOf_(importId, date) {
+  var m = /^(\d{2})(\d{2})\d{8}$/.exec(str_(importId));
+  if (m) return '20' + m[1] + '-' + m[2];
+  var d = parseYmd_(date);
+  return d ? d.getFullYear() + '-' + pad2_(d.getMonth() + 1) : '';
+}
+
+/**
+ * 以前の形式（「261006120000-1」）の案件ID・枠IDを、新しい形式に振り直す。
+ * 案件は取り込んだ順に、取り込んだ月ごとの通し番号を付ける。応募の枠ID・案件IDも付け替え、もとの枠IDは「旧枠ID」に残す
+ * （すでに送った LINE の応募ボタンなどが、もとの枠IDのままでも使えるように）。
+ */
+function jobIdMigration_(jobs, apps) {
+  var out = { jobs: [], apps: [] };
+  var used = jobs.map(function (j) { return j.caseId; });
+  var order = [], byCase = {};
+  jobs.forEach(function (j) {
+    if (!j.caseId || CASE_ID_RE.test(str_(j.caseId))) return;
+    if (!byCase[j.caseId]) { byCase[j.caseId] = []; order.push(j.caseId); }
+    byCase[j.caseId].push(j);
+  });
+  var slotMap = {}, caseMap = {};
+  order.forEach(function (oldCase) {
+    var rows = byCase[oldCase];
+    var prefix = caseIdPrefixOf_(rows[0].importId, rows[0].date);
+    if (!prefix) return;
+    var newCase = caseIdOf_(prefix, nextCaseNo_(used, prefix));
+    used.push(newCase);
+    caseMap[oldCase] = newCase;
+    rows.forEach(function (j, i) {
+      var newSlot = slotIdOf_(newCase, i + 1);
+      if (j.slotId) slotMap[j.slotId] = newSlot;
+      out.jobs.push({ row: j._row, caseId: newCase, slotId: newSlot, oldSlotId: str_(j.slotId) });
+    });
+  });
+  apps.forEach(function (a) {
+    if (slotMap[a.slotId] || caseMap[a.caseId]) {
+      out.apps.push({ row: a._row, slotId: slotMap[a.slotId] || a.slotId, caseId: caseMap[a.caseId] || a.caseId });
+    }
   });
   return out;
 }

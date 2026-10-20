@@ -426,6 +426,7 @@ function onOpen() {
     .addItem('案件応募に手動で追加', 'showManualApply')
     .addItem('freee に請求書を作る', 'showFreeeInvoice')
     .addItem('freee の取引先を読み込む', 'freeeLoadPartners')
+    .addItem('案件ID・枠IDを新しい形式にする', 'migrateJobIds')
     .addSeparator()
     .addItem('登録途中の人にリマインドを今すぐ送る', 'sendChatRemindersNow')
     .addItem('書類未提出の人にリマインドを今すぐ送る', 'sendDocRemindersNow')

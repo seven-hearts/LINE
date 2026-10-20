@@ -201,7 +201,8 @@ COLUMNS[JOB_SHEET] = [
   ['caseId', '案件ID'],
   ['slotId', '枠ID'],
   ['importId', '取込ID'],
-  ['freeeInvoice', 'freee請求書番号'] // freee に請求書を作ると自動で入る（入っている行は二重に作らない）
+  ['freeeInvoice', 'freee請求書番号'], // freee に請求書を作ると自動で入る（入っている行は二重に作らない）
+  ['oldSlotId', '旧枠ID']             // 枠IDを新しい形式に振り直す前の枠ID（送信済みの応募ボタン用）
 ];
 
 COLUMNS[APPLY_SHEET] = [
@@ -274,7 +275,7 @@ COLUMNS[IMPORT_SHEET] = [
  * 日付・時刻は Sheets が自動で日時に変換すると読み戻すときにずれるため、文字のまま保存する。
  */
 var TEXT_COLUMNS = {};
-TEXT_COLUMNS[JOB_SHEET] = ['日程', '開始時間', '終了時間', '曜日', '売上計上月', '入金予定月', '集合時間', '集合担当者名', '集合担当連絡先', '詳細連絡の画像', '配信日時', '案件ID', '枠ID', '取込ID', 'freee請求書番号'];
+TEXT_COLUMNS[JOB_SHEET] = ['日程', '開始時間', '終了時間', '曜日', '売上計上月', '入金予定月', '集合時間', '集合担当者名', '集合担当連絡先', '詳細連絡の画像', '配信日時', '案件ID', '枠ID', '取込ID', 'freee請求書番号', '旧枠ID'];
 
 var spreadsheetCache_ = null;
 

@@ -478,11 +478,18 @@ function saveJobs(payload) {
     client = name;
   }
   var importId = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyMMddHHmmss');
-  var rows = jobRows_(cases, { client: client, importId: importId, paymentMonthsAfter: getConfig_().paymentMonthsAfter });
-  if (!rows.length) throw new Error('日程が1つもありません。日程を入れてから追加してください');
+  if (!cases.some(function (c) { return (c.shifts || []).length; })) throw new Error('日程が1つもありません。日程を入れてから追加してください');
 
+  var rows;
   var start = withLock_(function () {
     jobSheets_();
+    // 案件ID は「2026-10-0001」：登録した月の通し番号（ロックの中で数えて、同時に取り込んでも重ならないように）
+    var prefix = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM');
+    var used = readAll_(JOB_SHEET).map(function (x) { return x.rec.caseId; });
+    rows = jobRows_(cases, {
+      client: client, importId: importId, paymentMonthsAfter: getConfig_().paymentMonthsAfter,
+      caseIdPrefix: prefix, firstCaseNo: nextCaseNo_(used, prefix)
+    });
     var first = appendRecords_(JOB_SHEET, rows);
     appendRecords_(IMPORT_SHEET, [{
       importId: importId, at: now_(), client: client || rows[0].client, cases: cases.length, rows: rows.length,
@@ -644,7 +651,30 @@ function jobSend(req) {
 function findSlot_(slotId) {
   var all = readAll_(JOB_SHEET);
   for (var i = 0; i < all.length; i++) if (all[i].rec.slotId === slotId) return all[i];
+  // 枠IDを振り直す前に送った応募ボタンなど
+  for (var k = 0; k < all.length; k++) if (slotId && all[k].rec.oldSlotId === slotId) return all[k];
   return null;
+}
+
+/** メニュー「案件ID・枠IDを新しい形式にする」：以前の形式の ID を「2026-10-0001」「2026-10-0001-01」に振り直す */
+function migrateJobIds() {
+  var ui = SpreadsheetApp.getUi();
+  var answer = ui.alert('案件ID・枠IDを新しい形式にする',
+    '以前の形式の案件ID・枠ID（例：261006120000-1-1）を、「2026-10-0001」「2026-10-0001-01」の形式に振り直します。\n' +
+    '「案件応募」の ID も合わせて変わります。もとの枠IDは「旧枠ID」の列に残すので、すでに送った応募ボタンもそのまま使えます。\n\nよろしいですか？',
+    ui.ButtonSet.OK_CANCEL);
+  if (answer !== ui.Button.OK) return;
+  var n = withLock_(function () {
+    jobSheets_();
+    if (headerMap_(sheet_(JOB_SHEET))['旧枠ID'] === undefined) ensureSheet_(spreadsheet_(), JOB_SHEET);
+    var jobs = readAll_(JOB_SHEET).map(function (x) { x.rec._row = x.row; return x.rec; });
+    var apps = readAll_(APPLY_SHEET).map(function (x) { x.rec._row = x.row; return x.rec; });
+    var m = jobIdMigration_(jobs, apps);
+    m.jobs.forEach(function (f) { updateCells_(JOB_SHEET, f.row, { caseId: f.caseId, slotId: f.slotId, oldSlotId: f.oldSlotId }); });
+    m.apps.forEach(function (f) { updateCells_(APPLY_SHEET, f.row, { caseId: f.caseId, slotId: f.slotId }); });
+    return m.jobs.length;
+  });
+  ui.alert(n ? n + '行の ID を新しい形式にしました。' : '以前の形式の ID はありませんでした。');
 }
 
 function onJobPostback_(ev, userId, params) {
@@ -1142,6 +1172,8 @@ function sendDepartureAlert_(app, reason) {
 
 /** 出発確認への回答（ボタン「はい」「いいえ」、または「はい」「いいえ」と文字で送ったとき） */
 function answerDeparture_(ev, userId, slotId, yes) {
+  // 枠IDを振り直す前に送った出発確認のボタンでも答えられるように、今の枠IDに直す
+  if (slotId) { var found = findSlot_(slotId); if (found) slotId = found.rec.slotId; }
   var result = withLock_(function () {
     var target = null;
     readAll_(APPLY_SHEET).forEach(function (x) {

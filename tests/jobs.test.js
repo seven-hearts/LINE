@@ -1059,3 +1059,45 @@ test('行のコピーで同じになった枠IDは付け直し、その日程の
   });
   assert.deepStrictEqual(plain(ctx.duplicateSlotFixes_(jobs.slice(0, 2), apps)), { jobs: [], apps: [] });
 });
+
+test('案件ID は「2026-10-0001」、枠ID は「2026-10-0001-01」（その月の通し番号）', () => {
+  assert.strictEqual(ctx.nextCaseNo_(['2026-10-0001', '2026-10-0009', '2026-09-0042', '261006120000-1', ''], '2026-10'), 10);
+  assert.strictEqual(ctx.nextCaseNo_([], '2026-11'), 1);
+  const cases = [kobe, Object.assign({}, kobe, { shifts: [] }), monozukuri].map(ctx.normalizeCase_);
+  const rows = plain(ctx.jobRows_(cases, { client: 'A', importId: '261020100000', paymentMonthsAfter: 1, caseIdPrefix: '2026-10', firstCaseNo: 12 }));
+  assert.deepStrictEqual(rows.map((r) => [r.caseId, r.slotId]), [
+    ['2026-10-0012', '2026-10-0012-01'],
+    ['2026-10-0013', '2026-10-0013-01'], ['2026-10-0013', '2026-10-0013-02'], ['2026-10-0013', '2026-10-0013-03']
+  ]);
+  // 行のコピーで重なった枠IDも、同じ形式で付け直す
+  const fix = plain(ctx.duplicateSlotFixes_([
+    { _row: 2, caseId: '2026-10-0012', slotId: '2026-10-0012-01', date: '2026/10/31', start: '09:00' },
+    { _row: 3, caseId: '2026-10-0012', slotId: '2026-10-0012-01', date: '2026/11/01', start: '09:00' }
+  ], []));
+  assert.deepStrictEqual(fix.jobs, [{ row: 3, slotId: '2026-10-0012-02' }]);
+});
+
+test('以前の形式の ID を振り直す（取り込んだ月ごとの通し番号。応募も付け替え、もとの枠IDを残す）', () => {
+  const jobs = [
+    { _row: 2, caseId: '260930100000-1', slotId: '260930100000-1-1', importId: '260930100000', date: '2026/10/05' },
+    { _row: 3, caseId: '261006120000-1', slotId: '261006120000-1-1', importId: '261006120000', date: '2026/10/08' },
+    { _row: 4, caseId: '261006120000-1', slotId: '261006120000-1-2', importId: '261006120000', date: '2026/10/09' },
+    { _row: 5, caseId: '2026-10-0001', slotId: '2026-10-0001-01', importId: '261019090000', date: '2026/11/01' },
+    { _row: 6, caseId: '261006120000-2', slotId: '261006120000-2-1', importId: '261006120000', date: '2026/10/10' }
+  ];
+  const apps = [
+    { _row: 2, caseId: '261006120000-1', slotId: '261006120000-1-2' },
+    { _row: 3, caseId: '2026-10-0001', slotId: '2026-10-0001-01' }
+  ];
+  const m = plain(ctx.jobIdMigration_(jobs, apps));
+  assert.deepStrictEqual(m.jobs.map((j) => [j.row, j.caseId, j.slotId, j.oldSlotId]), [
+    [2, '2026-09-0001', '2026-09-0001-01', '260930100000-1-1'],
+    [3, '2026-10-0002', '2026-10-0002-01', '261006120000-1-1'],
+    [4, '2026-10-0002', '2026-10-0002-02', '261006120000-1-2'],
+    [6, '2026-10-0003', '2026-10-0003-01', '261006120000-2-1']
+  ]);
+  assert.deepStrictEqual(m.apps, [{ row: 2, slotId: '2026-10-0002-02', caseId: '2026-10-0002' }]);
+  // 2回目は何もしない
+  const after = jobs.map((j) => Object.assign({}, j, (m.jobs.find((x) => x.row === j._row) || {})));
+  assert.deepStrictEqual(plain(ctx.jobIdMigration_(after, [])), { jobs: [], apps: [] });
+});
