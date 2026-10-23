@@ -477,8 +477,24 @@ function apiShiftMe_(userId, data) {
     submitted: !!existing,
     calendar: monthCalendar_(ym.year, ym.month),
     values: values,
-    note: existing ? String(existing.note || '').replace(/^'/, '') : ''
+    note: existing ? String(existing.note || '').replace(/^'/, '') : '',
+    jobs: myConfirmedJobs_(userId, ym.year, ym.month)
   };
+}
+
+/** その月に確定しているお仕事（案件のシートがまだない・読めないときは空） */
+function myConfirmedJobs_(userId, year, month) {
+  try {
+    var ss = spreadsheet_();
+    if (!ss.getSheetByName(APPLY_SHEET) || !ss.getSheetByName(JOB_SHEET)) return [];
+    var slots = {};
+    readAll_(JOB_SHEET).forEach(function (x) { if (x.rec.slotId) slots[x.rec.slotId] = x.rec; });
+    var apps = readAll_(APPLY_SHEET).map(function (x) { return x.rec; });
+    return confirmedJobsInMonth_(apps, slots, userId, year, month);
+  } catch (err) {
+    logError_('シフト：確定したお仕事の表示', userId, err);
+    return [];
+  }
 }
 
 function apiShift_(userId, data) {

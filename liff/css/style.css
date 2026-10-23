@@ -225,3 +225,12 @@ a { color: var(--gold-text); }
 .cal-legend li { display: flex; align-items: center; gap: 6px; }
 .swatch { display: inline-block; width: 14px; height: 14px; border-radius: 4px; background: var(--day-bg); border: 1px solid var(--day-border); }
 .shift-count { margin: 12px 0 0; font-weight: 700; text-align: right; color: var(--brand-brown); }
+
+/* シフト提出：確定しているお仕事 */
+.cal-day.has-job { position: relative; }
+.cal-day.has-job::after, .job-dot-sample { content: ''; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--brand-gold); }
+.cal-day.has-job::after { position: absolute; top: 3px; right: 3px; }
+.job-list { list-style: none; padding: 0; margin: 0; }
+.job-list li { padding: 10px 0; border-bottom: 1px solid var(--border); }
+.job-list li:last-child { border-bottom: none; }
+.job-list li .hint { margin: 2px 0 0; }

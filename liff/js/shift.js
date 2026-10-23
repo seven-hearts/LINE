@@ -11,6 +11,7 @@
   var calendar = App.$('#calendar');
   var info = null;   // サーバーから受け取った対象の月
   var values = {};   // 日 → '○' / '×'
+  var jobDays = {};  // 日 → 確定しているお仕事の数
 
   App.init()
     .then(function () {
@@ -30,6 +31,7 @@
       submit.textContent = res.submitted ? '更新する' : '提出する';
       App.$('#note').value = res.note || '';
       for (var d = 1; d <= daysInMonth(); d++) values[d] = res.values[d] === OK ? OK : NG;
+      renderJobs(res.jobs || []);
       render();
       App.show('screen-form');
     })
@@ -60,13 +62,13 @@
       var w = weekday(d);
       var di = dayInfo(d);
       b.type = 'button';
-      b.className = 'cal-day ' + di.type + (values[d] === OK ? ' on' : '');
+      b.className = 'cal-day ' + di.type + (values[d] === OK ? ' on' : '') + (jobDays[d] ? ' has-job' : '');
       b.dataset.day = d;
       b.disabled = !editable(d);
       if (di.holiday) b.title = di.holiday;
       b.setAttribute('aria-pressed', values[d] === OK ? 'true' : 'false');
       b.setAttribute('aria-label', info.monthNumber + '月' + d + '日（' + WEEKDAYS[w] + (di.holiday ? '・' + di.holiday : '') + '）' +
-        (values[d] === OK ? '出勤できる' : '出勤できない'));
+        (values[d] === OK ? '出勤できる' : '出勤できない') + (jobDays[d] ? '・お仕事が確定しています' : ''));
       b.innerHTML = '<span class="num"></span><span class="mark"></span>';
       b.querySelector('.num').textContent = d + (di.holiday ? '祝' : '');
       b.querySelector('.mark').textContent = editable(d) || values[d] === OK ? values[d] : '';
@@ -76,10 +78,37 @@
     App.$('#shift-count').textContent = '出勤できる日：' + count + '日';
   }
 
+  /** 確定しているお仕事の一覧（カレンダーの日にも印を付ける） */
+  function renderJobs(jobs) {
+    jobDays = {};
+    var ul = App.$('#job-list');
+    ul.innerHTML = '';
+    jobs.forEach(function (j) {
+      jobDays[j.day] = (jobDays[j.day] || 0) + 1;
+      var li = document.createElement('li');
+      var when = document.createElement('strong');
+      when.textContent = j.label;
+      var what = document.createElement('div');
+      what.textContent = j.title;
+      li.appendChild(when);
+      li.appendChild(what);
+      [j.place && '📍 ' + j.place, j.meeting && '集合 ' + j.meeting].filter(Boolean).forEach(function (t) {
+        var p = document.createElement('div');
+        p.className = 'hint';
+        p.textContent = t;
+        li.appendChild(p);
+      });
+      ul.appendChild(li);
+    });
+    App.$('#jobs-card').hidden = !jobs.length;
+  }
+
   calendar.addEventListener('click', function (e) {
     var b = e.target.closest('.cal-day');
     if (!b || b.disabled) return;
     var d = Number(b.dataset.day);
+    if (values[d] === OK && jobDays[d] &&
+        !confirm(info.monthNumber + '月' + d + '日は、お仕事が確定しています。×（出勤できない）にしますか？\n\n確定したお仕事に行けなくなった場合は、トークで担当者にご連絡ください。')) return;
     values[d] = values[d] === OK ? NG : OK;
     render();
   });

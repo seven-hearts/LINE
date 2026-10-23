@@ -1071,6 +1071,33 @@ function slotCountChanges_(jobs, apps) {
   return out;
 }
 
+/**
+ * シフト提出の画面に出す、その人の確定したお仕事（その月の分。日付・開始時間順）。
+ * @param {Array} apps 「案件応募」の行
+ * @param {Object} slots 枠ID → 「案件一覧」の行（場所・集合などを出すため）
+ */
+function confirmedJobsInMonth_(apps, slots, userId, year, month) {
+  var out = [];
+  apps.forEach(function (a) {
+    if (a.userId !== userId || a.status !== APPLY_STATUS.CONFIRMED) return;
+    if (ABSENT_STATUSES.indexOf(a.workStatus) >= 0) return;
+    var d = parseYmd_(a.date);
+    if (!d || d.getFullYear() !== year || d.getMonth() + 1 !== month) return;
+    var s = slots[a.slotId] || {};
+    out.push({
+      day: d.getDate(),
+      label: slotLabel_(a),
+      title: str_(a.title || s.title),
+      place: str_(s.place),
+      meeting: [s.meetingTime, s.meetingPlace].map(str_).filter(Boolean).join(' '),
+      sort: ymd_(d) + normalizeTime_(a.start)
+    });
+  });
+  out.sort(function (x, y) { return x.sort < y.sort ? -1 : x.sort > y.sort ? 1 : 0; });
+  out.forEach(function (j) { delete j.sort; });
+  return out;
+}
+
 function applyTimeChanges_(apps, slots) {
   var changes = [];
   apps.forEach(function (a) {

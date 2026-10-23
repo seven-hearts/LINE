@@ -147,3 +147,25 @@ test('カレンダーの色：平日は白、土日祝はオレンジ、3連休�
   assert.strictEqual(type(apr, 29), 'off'); // 昭和の日（水）
   assert.strictEqual(ymd(new Date(2026, 3, 29)), '2026-04-29');
 });
+
+test('シフト提出の画面に、その月の確定したお仕事を出す', () => {
+  const c = vm.createContext({});
+  for (const f of ['Options.gs', 'Validation.gs', 'Line.gs', 'Sheet.gs', 'Interview.gs', 'Jobs.gs']) {
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'gas', f), 'utf8'), c, { filename: f });
+  }
+  const a = (o) => Object.assign({ userId: 'U1', status: '確定', slotId: 'S1', title: '物産展', date: '2026/11/03', start: '09:00', end: '18:00', workStatus: '' }, o);
+  const apps = [
+    a({ date: '2026/11/10', slotId: 'S2', start: '10:00' }),
+    a({}),
+    a({ status: '応募', date: '2026/11/05' }),
+    a({ userId: 'U2' }),
+    a({ date: '2026/12/01' }),
+    a({ date: '2026/11/20', workStatus: '連絡欠勤' })
+  ];
+  const slots = { S1: { place: '梅田', meetingTime: '8:45', meetingPlace: '西口' }, S2: { place: '難波' } };
+  const jobs = JSON.parse(JSON.stringify(c.confirmedJobsInMonth_(apps, slots, 'U1', 2026, 11)));
+  assert.deepStrictEqual(jobs, [
+    { day: 3, label: '11/3(火) 9:00〜18:00', title: '物産展', place: '梅田', meeting: '8:45 西口' },
+    { day: 10, label: '11/10(火) 10:00〜18:00', title: '物産展', place: '難波', meeting: '' }
+  ]);
+});
