@@ -635,7 +635,7 @@ function jobSend(req) {
   var sent = 0, failed = 0, lastError = '';
   var sentPerCase = {};
   buckets.forEach(function (b) {
-    var messages = jobMessages_(b.groups, registerUrl_());
+    var messages = jobMessages_(b.groups);
     for (var i = 0; i < b.userIds.length; i += MULTICAST_LIMIT) {
       var to = b.userIds.slice(i, i + MULTICAST_LIMIT);
       if (multicastMessage_(to, messages)) {
@@ -692,76 +692,31 @@ function migrateJobIds() {
   ui.alert(n ? n + '行の ID を新しい形式にしました。' : '以前の形式の ID はありませんでした。');
 }
 
-/**
- * 応募を受け付ける（ロックの中で呼ぶ）。枠ごとに結果を返し、受け付けた枠は「案件応募」に追加する。
- * @return {Array<{slotId, label, ok, message}>}
- */
-function applySlots_(userId, staff, slotIds, now) {
-  var jobs = readAll_(JOB_SHEET);
-  var apps = readAll_(APPLY_SHEET).map(function (x) { return x.rec; });
-  var results = slotIds.map(function (id) {
-    var slot = null;
-    for (var i = 0; i < jobs.length && !slot; i++) if (jobs[i].rec.slotId === id || (id && jobs[i].rec.oldSlotId === id)) slot = jobs[i].rec;
-    var already = !!slot && apps.some(function (a) {
-      return a.slotId === slot.slotId && a.userId === userId && a.status !== APPLY_STATUS.CANCELLED;
-    });
-    var reason = applyRejectReason_(slot, staff, already, now);
-    if (reason) return { slotId: id, label: slot ? slotLabel_(slot) : '', ok: false, message: reason };
-    var rec = {
-      appliedAt: now_(), status: APPLY_STATUS.APPLIED, slotId: slot.slotId, caseId: slot.caseId, title: slot.title,
-      date: slot.date, start: slot.start, end: slot.end,
-      payUnit: (staffPayTerms_(slot.staffPay) || {}).unit || '', payRate: (staffPayTerms_(slot.staffPay) || {}).rate || '',
-      name: fullName_(staff), phone: staff.phone, userId: userId
-    };
-    appendRecords_(APPLY_SHEET, [rec]);
-    apps.push(rec);
-    return { slotId: slot.slotId, label: slotLabel_(slot), title: slot.title, place: slot.place, ok: true, message: '' };
-  });
-  if (results.some(function (r) { return r.ok; })) recountSlots_(); // 「案件一覧」の応募人数
-  return results;
-}
-
-/** 以前のカード（日程ごとの応募ボタン）が押されたとき */
 function onJobPostback_(ev, userId, params) {
   if (params.job !== 'apply' || !params.s) return;
   var staff = readRecord_(REG_SHEET, userId);
-  var r = withLock_(function () { return applySlots_(userId, staff, [params.s], new Date())[0]; });
-  replyMessage_(ev.replyToken, [textMessage_(r.ok ? applyAcceptedText_(r) : r.message)]);
-  if (r.ok) notifyAdmin_('案件への応募', fullName_(staff));
-}
+  var reply = withLock_(function () {
+    var slot = findSlot_(params.s);
+    var apps = readAll_(APPLY_SHEET);
+    var already = apps.some(function (x) {
+      return x.rec.slotId === params.s && x.rec.userId === userId && x.rec.status !== APPLY_STATUS.CANCELLED;
+    });
+    var reason = applyRejectReason_(slot && slot.rec, staff, already, new Date());
+    if (reason) return reason;
 
-/** 応募の画面（LIFF apply.html）を開いたとき：案件の内容と、日程ごとに応募できるか */
-function apiJobApplyInfo_(userId, data) {
-  var staff = readRecord_(REG_SHEET, userId);
-  if (!staff) throw new UserError('お仕事への応募は、スタッフ登録が済んだ方のみ受け付けています。');
-  var caseId = str_(data.caseId);
-  var rows = readAll_(JOB_SHEET).map(function (x) { return x.rec; }).filter(function (r) { return r.caseId === caseId && r.slotId; });
-  if (!rows.length) throw new UserError('この案件は見つかりませんでした。募集が終了した可能性があります。');
-  var apps = readAll_(APPLY_SHEET).map(function (x) { return x.rec; });
-  var now = new Date();
-  var f = rows[0];
-  return {
-    ok: true,
-    title: f.title, place: f.place, address: f.address, work: f.work, staffPay: f.staffPay, transport: STAFF_TRANSPORT,
-    meetingTime: f.meetingTime, meetingPlace: f.meetingPlace, dress: f.dress, belongings: f.belongings,
-    name: fullName_(staff),
-    slots: rows.map(function (r) {
-      var mine = apps.filter(function (a) { return a.slotId === r.slotId && a.userId === userId && a.status !== APPLY_STATUS.CANCELLED; })[0];
-      var closed = applyRejectReason_(r, staff, false, now);
-      return { slotId: r.slotId, label: slotLabel_(r), applied: mine ? mine.status : '', closed: !!closed };
-    })
-  };
-}
-
-/** 応募の画面で「応募する」を押したとき（チェックを付けた日程にまとめて応募） */
-function apiJobApply_(userId, data) {
-  var slotIds = (data.slotIds || []).map(str_).filter(Boolean).slice(0, 50);
-  if (!slotIds.length) throw new UserError('働ける日にチェックを入れてください。');
-  var staff = readRecord_(REG_SHEET, userId);
-  var results = withLock_(function () { return applySlots_(userId, staff, slotIds, new Date()); });
-  var ok = results.filter(function (r) { return r.ok; });
-  if (ok.length) notifyAdmin_('案件への応募（' + ok.length + '日程）', fullName_(staff));
-  return { ok: true, results: results };
+    var s = slot.rec;
+    appendRecords_(APPLY_SHEET, [{
+      appliedAt: now_(), status: APPLY_STATUS.APPLIED, slotId: s.slotId, caseId: s.caseId, title: s.title,
+      date: s.date, start: s.start, end: s.end,
+      payUnit: (staffPayTerms_(s.staffPay) || {}).unit || '', payRate: (staffPayTerms_(s.staffPay) || {}).rate || '',
+      name: fullName_(staff), phone: staff.phone, userId: userId
+    }]);
+    var count = apps.filter(function (x) { return x.rec.slotId === s.slotId && x.rec.status !== APPLY_STATUS.CANCELLED; }).length + 1;
+    updateCells_(JOB_SHEET, slot.row, { applied: count });
+    return applyAcceptedText_(s);
+  });
+  replyMessage_(ev.replyToken, [textMessage_(reply)]);
+  if (reply.indexOf('応募を受け付けました') === 0) notifyAdmin_('案件への応募', fullName_(staff));
 }
 
 /** 「案件応募」を編集したとき（onStatusEdit から）。実働時間・給与額を計算し、確定・見送りを本人に知らせる */

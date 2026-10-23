@@ -56,11 +56,7 @@ function onUnfollow_(userId) {
   }
 }
 
-/** 応募の画面から本人の名前で送られる「応募しました」のメッセージ（チャットに残すためのもの。返事はしない） */
-var APPLY_ECHO_PREFIX = '【応募しました】';
-
 function onText_(ev, userId, text) {
-  if (text.indexOf(APPLY_ECHO_PREFIX) === 0) return;
   var chat = loadChat_(userId);
   // お名前を聞いている間は、送られたメッセージを回答として扱う
   if (chat && chatAsking_(chat)) return continueChat_(ev, userId, chat, { text: text });

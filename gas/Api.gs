@@ -34,8 +34,6 @@ function handleApi_(body) {
       case 'onboarding': return apiOnboarding_(userId, data);
       case 'shiftMe': return apiShiftMe_(userId, data);
       case 'shift': return apiShift_(userId, data);
-      case 'jobApplyInfo': return apiJobApplyInfo_(userId, data);
-      case 'jobApply': return apiJobApply_(userId, data);
     }
     return { ok: false, error: '不明な操作です' };
   } catch (err) {

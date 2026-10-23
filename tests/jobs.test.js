@@ -178,29 +178,25 @@ test('チェックした人にだけ送る（チェックがない組み合わ�
   assert.deepStrictEqual(plain(view(ctx.restrictBuckets_(buckets, []))), []);
 });
 
-const LIFF = 'https://liff.line.me/2011864173-MxilvLoL';
-
-test('案件のカード：日程を並べ、「日程を選んで応募する」で応募の画面を開く（LINE の上限に収まる）', () => {
+test('LINE のメッセージは上限（ボタンの文字数・postback・カルーセル）に収まる', () => {
   const many = rowsOf([Object.assign({}, monozukuri, {
-    shifts: Array.from({ length: 20 }, (_, i) => ({ date: '2026-11-' + String(i + 1).padStart(2, '0'), holiday: false, start: '13:30', end: '18:45', break_minutes: null, headcount: 1, note: '' }))
+    shifts: Array.from({ length: 10 }, (_, i) => ({ date: '2026-11-' + String(i + 1).padStart(2, '0'), holiday: false, start: '13:30', end: '18:45', break_minutes: null, headcount: 1, note: '' }))
   })]);
-  many.forEach((r) => { r.staffPay = '時給1,200円'; r.caseId = '2026-10-0002'; });
-  osakaFemale.forEach((r) => { r.caseId = '2026-10-0001'; });
-  const msgs = plain(ctx.jobMessages_([osakaFemale, many], LIFF));
+  many.forEach((r) => { r.staffPay = '時給1,200円'; });
+  const msgs = plain(ctx.jobMessages_([osakaFemale, many]));
   assert.strictEqual(msgs.length, 1);
   assert.strictEqual(msgs[0].contents.type, 'carousel');
-  assert.strictEqual(msgs[0].contents.contents.length, 2); // 1案件1枚
+  assert.strictEqual(msgs[0].contents.contents.length, 3); // 1 + (8 + 2)
   assert.ok(msgs[0].altText.length <= 400);
   const buttons = msgs[0].contents.contents.flatMap((b) => b.footer.contents);
-  assert.deepStrictEqual(buttons.map((b) => [b.action.type, b.action.label, b.action.uri]), [
-    ['uri', '日程を選んで応募する', LIFF + '/apply.html?case=2026-10-0001'],
-    ['uri', '日程を選んで応募する', LIFF + '/apply.html?case=2026-10-0002']
-  ]);
+  assert.strictEqual(buttons.length, 11);
+  buttons.forEach((b) => {
+    assert.ok(b.action.label.length <= 40, b.action.label);
+    assert.ok(b.action.data.length <= 300);
+    assert.match(b.action.data, /^job=apply&s=/);
+  });
+  assert.strictEqual(buttons[1].action.label, '11/1(日) 13:30〜18:45');
   const text = JSON.stringify(msgs);
-  assert.match(text, /📅 11\/1\(日\) 13:30〜18:45/);
-  assert.match(text, /📅 11\/15\(日\) 13:30〜18:45/);
-  assert.doesNotMatch(text, /📅 11\/16/);
-  assert.match(text, /ほか 5日程/);
   assert.match(text, /時給1,200円/);
   assert.doesNotMatch(text, /1600|1,600/); // 請求単価はスタッフに見せない
   assert.doesNotMatch(text, /40代/);      // 年齢の条件も載せない
@@ -210,12 +206,12 @@ test('案件のカード：日程を並べ、「日程を選んで応募する�
 
 test('空の項目は LINE のメッセージに入れない（空の text は送信エラーになる）', () => {
   const bare = rowsOf([{ shifts: [{ date: '2026-10-20', start: '', end: '' }] }]);
-  const msgs = plain(ctx.jobMessages_([bare], LIFF));
+  const msgs = plain(ctx.jobMessages_([bare]));
   const texts = [];
   const walk = (o) => { if (o && typeof o === 'object') { if (o.type === 'text') texts.push(o.text); if (o.type === 'box') assert.ok(o.contents.length); Object.values(o).forEach(walk); } };
   walk(msgs);
   assert.ok(texts.every((t) => typeof t === 'string' && t.length > 0), JSON.stringify(texts));
-  assert.ok(texts.includes('📅 10/20(火)'));
+  assert.strictEqual(msgs[0].contents.footer.contents[0].action.label, '10/20(火)');
 });
 
 test('応募を受け付けるかの判定', () => {
@@ -928,7 +924,7 @@ test('Gemini がすべて混み合っていても、Claude の APIキーがあ�
 
 test('配信のカード：スタッフ向け給与と「交通費全額支給」をタイトルの下に出す', () => {
   const rows = rowsOf([kobe]).map((r) => Object.assign(r, { staffPay: '時給1,180円' }));
-  const text = JSON.stringify(plain(ctx.jobMessages_([rows], LIFF)));
+  const text = JSON.stringify(plain(ctx.jobMessages_([rows])));
   assert.match(text, /💴 時給1,180円\\n🚃 交通費全額支給/);
   assert.doesNotMatch(text, /¥660/);
   const imported = plain(ctx.jobRows_([Object.assign(ctx.normalizeCase_(kobe), { staffPay: '時給1,180円' })], { client: 'A', importId: 'X', paymentMonthsAfter: 1 }));
@@ -1126,10 +1122,9 @@ test('案件一覧の応募人数・確定人数を数え直す（変わった�
 test('送信履歴：メッセージを読める文章にする（カード・ボタンも）', () => {
   const rows = rowsOf([kobe]);
   rows.forEach((r) => { r.staffPay = '時給1,200円'; });
-  const text = ctx.messagesSummary_(plain(ctx.jobMessages_([rows], LIFF)));
+  const text = ctx.messagesSummary_(plain(ctx.jobMessages_([rows])));
   assert.match(text, /^お仕事のご案内\n神戸港フォークリフト荷役技能向上大会\n💴 時給1,200円/);
-  assert.match(text, /\n📅 10\/8\(木\) 8:30〜15:30\n/);
-  assert.match(text, /\n［ボタン］日程を選んで応募する$/);
+  assert.match(text, /\n［ボタン］10\/8\(木\) 8:30〜15:30$/);
   assert.strictEqual(ctx.messagesSummary_([ctx.textMessage_('こんにちは'), { type: 'image' }]), 'こんにちは\n―――\n［画像］');
   assert.strictEqual(ctx.messagesSummary_([ctx.buttonMessage_('書類を出してください', '書類を提出する', 'https://example.com')]),
     '書類を出してください\n［ボタン］書類を提出する');
@@ -1167,33 +1162,4 @@ test('送信履歴：1人1行で記録し、名前を付ける（記録に失敗
   assert.strictEqual(log[4][5], '送れませんでした：今月のメッセージ送信数の上限に達しました');
   c.spreadsheet_ = () => { throw new Error('no sheet'); };
   c.logSend_('個別', ['U1'], [c.textMessage_('x')], true); // 例外を外に出さない
-});
-
-test('応募の画面：チェックした日程にまとめて応募（応募済み・締切は理由を返す）', () => {
-  const c = vm.createContext({});
-  for (const f of ['Options.gs', 'Validation.gs', 'Line.gs', 'Sheet.gs', 'Interview.gs', 'Jobs.gs', 'JobsApp.gs']) {
-    vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'gas', f), 'utf8'), c, { filename: f });
-  }
-  const slot = (id, date, o) => Object.assign({ slotId: id, caseId: 'C', title: '物産展', place: '梅田', date, start: '09:00', end: '18:00', recruit: '募集中', staffPay: '時給1,200円' }, o);
-  const jobs = [slot('C-01', '2026/10/30'), slot('C-02', '2026/10/31'), slot('C-03', '2026/11/01', { oldSlotId: 'OLD-3' }), slot('C-04', '2026/10/20')];
-  const apps = [{ slotId: 'C-02', userId: 'U1', status: '応募' }];
-  const added = [];
-  c.readAll_ = (name) => (name === c.JOB_SHEET ? jobs : apps).map((rec, i) => ({ rec, row: i + 2 }));
-  c.appendRecords_ = (name, recs) => { added.push(...recs); apps.push(...recs); return 9; };
-  c.recountSlots_ = () => {};
-  c.now_ = () => '2026/10/23 12:00:00';
-  const staff = { userId: 'U1', lastName: '山田', firstName: '花子', phone: '090' };
-  const res = plain(c.applySlots_('U1', staff, ['C-01', 'C-02', 'OLD-3', 'C-04', 'NONE'], new Date(2026, 9, 23, 12, 0)));
-  assert.deepStrictEqual(res.map((r) => [r.slotId, r.ok]), [['C-01', true], ['C-02', false], ['C-03', true], ['C-04', false], ['NONE', false]]);
-  assert.match(res[1].message, /すでに応募/);
-  assert.match(res[3].message, /締め切りました/);
-  assert.match(res[4].message, /見つかりません/);
-  assert.deepStrictEqual(added.map((a) => [a.slotId, a.status, a.name, a.payUnit, a.payRate]), [
-    ['C-01', '応募', '山田 花子', '時給', 1200], ['C-03', '応募', '山田 花子', '時給', 1200]
-  ]);
-  // 同じ日程を2回選んでも、2つ目は応募済み
-  added.length = 0;
-  const twice = plain(c.applySlots_('U1', staff, ['C-01', 'C-01'], new Date(2026, 9, 23, 12, 0)));
-  assert.deepStrictEqual(twice.map((r) => r.ok), [false, false]); // C-01 は上で応募済み
-  assert.strictEqual(added.length, 0);
 });
