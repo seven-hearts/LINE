@@ -66,6 +66,8 @@ var STAFF_TRANSPORT = '全額支給';
 
 /** 1つのバブルに並べる応募ボタンの数（多い日程は次のバブルに分ける） */
 var SLOTS_PER_BUBBLE = 8;
+/** 案件のカードに並べる日程の数（それより多い分は「ほか n日程」。応募の画面にはすべて出る） */
+var SLOTS_IN_CARD = 15;
 var MAX_BUBBLES = 12;          // カルーセル1つあたり（LINE の上限）
 var MAX_MESSAGES = 5;          // 1回の送信あたり（LINE の上限）
 var MULTICAST_LIMIT = 500;     // 1回の一斉送信の宛先（LINE の上限）
@@ -563,10 +565,10 @@ function infoLine_(label, text) {
 }
 
 /**
- * 1案件ぶんのバブル（応募ボタンは日程・時間帯ごと）。日程が多いときは複数のバブルに分ける。
+ * 1案件ぶんのバブル。日程を並べ、「日程を選んで応募する」ボタンで応募の画面（LIFF）を開く。
  * @param {Array} rows 同じ案件IDの行（募集中のものだけ）
  */
-function jobBubbles_(rows) {
+function jobBubbles_(rows, applyBase) {
   var first = rows[0];
   var meal = isNum_(toNum_(first.meal)) ? (toNum_(first.meal) > 0 ? yen_(toNum_(first.meal)) + ' 支給' : '') : str_(first.meal);
   var info = [];
@@ -580,40 +582,51 @@ function jobBubbles_(rows) {
   if (first.belongings) info.push(infoLine_('持ち物', first.belongings));
   if (meal && meal !== 'なし') info.push(infoLine_('食事', meal));
 
-  var bubbles = [];
-  for (var i = 0; i < rows.length; i += SLOTS_PER_BUBBLE) {
-    var chunk = rows.slice(i, i + SLOTS_PER_BUBBLE);
-    var buttons = chunk.map(function (r) {
-      return {
+  // 日程の一覧（多いときは途中まで）。応募は「日程を選んで応募する」の画面でチェックを付けて、まとめて行う
+  var slotLines = rows.slice(0, SLOTS_IN_CARD).map(function (r) {
+    return { type: 'text', text: '📅 ' + slotLabel_(r), size: 'sm', wrap: true };
+  });
+  if (rows.length > SLOTS_IN_CARD) slotLines.push({ type: 'text', text: 'ほか ' + (rows.length - SLOTS_IN_CARD) + '日程', size: 'xs', color: '#888888' });
+
+  return [{
+    type: 'bubble',
+    body: {
+      type: 'box', layout: 'vertical', spacing: 'md',
+      contents: [
+        { type: 'text', text: 'お仕事のご案内', size: 'xs', color: BRAND_BROWN, weight: 'bold' },
+        { type: 'text', text: first.title || 'お仕事', weight: 'bold', size: 'md', wrap: true },
+        // 給与と交通費は目立つように、タイトルのすぐ下に出す
+        { type: 'text', text: '💴 ' + (str_(first.staffPay) || '給与はお問い合わせください') + '\n🚃 交通費' + STAFF_TRANSPORT,
+          weight: 'bold', size: 'sm', color: BRAND_BROWN, wrap: true },
+        // LINE は中身が空の box や text を受け付けないので、項目がなければ入れない
+        info.length ? { type: 'box', layout: 'vertical', spacing: 'xs', contents: info } : null,
+        { type: 'separator' },
+        { type: 'box', layout: 'vertical', spacing: 'xs', contents: slotLines },
+        { type: 'text', text: '働ける日にチェックを入れて応募できます（複数選べます）。', size: 'xxs', color: '#888888', wrap: true }
+      ].filter(Boolean)
+    },
+    footer: {
+      type: 'box', layout: 'vertical',
+      contents: [{
         type: 'button', style: 'primary', color: BRAND_BROWN, height: 'sm',
-        action: { type: 'postback', label: slotLabel_(r).slice(0, 40), data: 'job=apply&s=' + encodeURIComponent(r.slotId), displayText: slotLabel_(r) + ' に応募します' }
-      };
-    });
-    bubbles.push({
-      type: 'bubble',
-      body: {
-        type: 'box', layout: 'vertical', spacing: 'md',
-        contents: [
-          { type: 'text', text: 'お仕事のご案内', size: 'xs', color: BRAND_BROWN, weight: 'bold' },
-          { type: 'text', text: (first.title || 'お仕事') + (i > 0 ? '（つづき）' : ''), weight: 'bold', size: 'md', wrap: true },
-          // 給与と交通費は目立つように、タイトルのすぐ下に出す
-          { type: 'text', text: '💴 ' + (str_(first.staffPay) || '給与はお問い合わせください') + '\n🚃 交通費' + STAFF_TRANSPORT,
-            weight: 'bold', size: 'sm', color: BRAND_BROWN, wrap: true },
-          // LINE は中身が空の box や text を受け付けないので、項目がなければ入れない
-          info.length ? { type: 'box', layout: 'vertical', spacing: 'xs', contents: info } : null,
-          { type: 'text', text: '働ける日時のボタンを押すと応募できます（複数可）。', size: 'xxs', color: '#888888', wrap: true }
-        ].filter(Boolean)
-      },
-      footer: { type: 'box', layout: 'vertical', spacing: 'sm', contents: buttons }
-    });
-  }
-  return bubbles;
+        action: { type: 'uri', label: '日程を選んで応募する', uri: jobApplyUrl_(applyBase, first.caseId) }
+      }]
+    }
+  }];
 }
 
-/** 選んだ案件（案件IDごとの行）→ 送信するメッセージ（カルーセル。最大5通） */
-function jobMessages_(groups) {
+/** 応募の画面（LIFF の apply.html）。base は LIFF の URL（https://liff.line.me/…） */
+function jobApplyUrl_(base, caseId) {
+  return base + '/apply.html?case=' + encodeURIComponent(caseId);
+}
+
+/**
+ * 選んだ案件（案件IDごとの行）→ 送信するメッセージ（カルーセル。最大5通）
+ * @param {string} applyBase LIFF の URL（応募の画面を開くボタンに使う）
+ */
+function jobMessages_(groups, applyBase) {
   var bubbles = [];
-  groups.forEach(function (rows) { bubbles = bubbles.concat(jobBubbles_(rows)); });
+  groups.forEach(function (rows) { bubbles = bubbles.concat(jobBubbles_(rows, applyBase)); });
   if (!bubbles.length) return [];
   if (bubbles.length > MAX_BUBBLES * MAX_MESSAGES) throw new Error('一度に送れる案件が多すぎます。案件を分けて配信してください');
   var messages = [];
@@ -649,7 +662,7 @@ function applyRejectReason_(slot, staff, already, now) {
 }
 
 function applyAcceptedText_(slot) {
-  return '応募を受け付けました。\n\n' + slot.title + '\n📅 ' + slotLabel_(slot) + '\n📍 ' + slot.place +
+  return '応募を受け付けました。\n\n' + slot.title + '\n📅 ' + (slot.label || slotLabel_(slot)) + '\n📍 ' + slot.place +
     '\n\n担当者が確認して、このトークで結果をお知らせします。';
 }
 

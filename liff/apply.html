@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>お仕事に応募｜セブンハーツ</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header>
+    <img class="logo" src="img/logo.png" alt="SEVEN HEARTS">
+    <h1>お仕事に応募</h1>
+    <p>働ける日にチェックを入れてください</p>
+  </header>
+
+  <main>
+    <div id="screen-loading" data-screen class="center">
+      <div class="spinner"></div>
+      <p>読み込み中…</p>
+    </div>
+
+    <div id="screen-error" data-screen class="center" hidden>
+      <div class="big-icon">!</div>
+      <h2>ご案内</h2>
+      <p id="error-message"></p>
+    </div>
+
+    <div id="screen-done" data-screen class="center" hidden>
+      <div class="big-icon">♥</div>
+      <h2 id="done-title">応募を受け付けました</h2>
+      <ul class="result-list" id="done-list"></ul>
+      <p class="hint">担当者が確認して、LINE のトークで結果をお知らせします。</p>
+      <button type="button" class="primary" id="close-button">閉じる</button>
+    </div>
+
+    <form id="screen-form" data-screen hidden novalidate>
+      <section class="card">
+        <h2 id="job-title">お仕事</h2>
+        <p class="job-pay" id="job-pay"></p>
+        <dl class="job-info" id="job-info"></dl>
+      </section>
+
+      <section class="card">
+        <h2>働ける日を選ぶ<span class="opt">複数選べます</span></h2>
+        <div class="slot-list" id="slot-list" role="group" aria-label="日程"></div>
+        <p class="field-error" id="slot-error" hidden></p>
+      </section>
+
+      <button type="submit" class="primary" id="submit-button" disabled>応募する</button>
+    </form>
+  </main>
+
+  <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/common.js"></script>
+  <script src="js/apply.js"></script>
+</body>
+</html>
