@@ -32,6 +32,7 @@ var STATUS = {
   DOC_SUBMITTED: '書類提出済',        // 書類フォーム送信済み。管理者が内容を確認
   ACTIVE: '稼働可',                  // 確認完了。シフトに入れる状態
   REJECTED: '不採用',                // 面接後に管理者が設定 → 翌日の午前10時に不採用通知を自動送信
+  WITHDRAWN: '選考辞退',             // 面接など選考の途中で本人が辞退。管理者が設定（通知は送らない。面接の予定はカレンダーから消える）
   LEFT: '退会'
 };
 
@@ -528,7 +529,7 @@ function setStatus_(userId, status) {
 }
 
 /** 「スタッフ登録」でグレーにするステータス（選考が終わった人・やめた人） */
-var INACTIVE_STATUSES = [STATUS.DOC_FAILED, STATUS.REJECTED, STATUS.LEFT];
+var INACTIVE_STATUSES = [STATUS.DOC_FAILED, STATUS.REJECTED, STATUS.WITHDRAWN, STATUS.LEFT];
 
 /** ステータス → 行をグレーにする条件付き書式の数式（2行目の形。シートが行ごとにずらして使う） */
 function inactiveRowFormula_(statusColLetter) {

@@ -479,7 +479,7 @@ test('Google Meet の案内：iPhone はアプリなしで参加でき、Android
 });
 
 test('スタッフ登録：書類落選・不採用・退会の行をグレーにする（setup を何度実行しても1つだけ）', () => {
-  assert.strictEqual(ctx.inactiveRowFormula_('K'), '=OR($K2="書類落選",$K2="不採用",$K2="退会")');
+  assert.strictEqual(ctx.inactiveRowFormula_('K'), '=OR($K2="書類落選",$K2="不採用",$K2="選考辞退",$K2="退会")');
   const other = { getBooleanCondition: () => ({ getCriteriaValues: () => ['=$A2=""'] }) };
   const old = { getBooleanCondition: () => ({ getCriteriaValues: () => ['=OR($J2="不採用",$J2="退会")'] }) };
   let saved = null;
@@ -502,7 +502,7 @@ test('スタッフ登録：書類落選・不採用・退会の行をグレー�
   ctx.grayOutInactiveRows_(sheet, 11);
   assert.strictEqual(saved.length, 2);
   assert.strictEqual(saved[0], other);
-  assert.strictEqual(built.formula, '=OR($K2="書類落選",$K2="不採用",$K2="退会")');
+  assert.strictEqual(built.formula, '=OR($K2="書類落選",$K2="不採用",$K2="選考辞退",$K2="退会")');
   assert.strictEqual(built.bg, '#e0e0e0');
   assert.deepStrictEqual([built.ranges[0].r, built.ranges[0].c, built.ranges[0].nr, built.ranges[0].nc], [2, 1, 999, 30]);
 });
@@ -557,4 +557,12 @@ test('稼働可にしたら案内を1回だけ送る', () => {
   c.sendActiveNotice_({ userId: 'U2', blocked: 'ブロック中' }, header);
   c.sendActiveNotice_({ userId: 'U3' }, {}); // setup 前（列がない）
   assert.strictEqual(pushes.length, 1);
+});
+
+test('選考辞退：面接の予定はカレンダーから消し、通知は送らない', () => {
+  const now = new Date(2026, 9, 23, 12, 0);
+  const rec = { userId: 'U1', status: '選考辞退', calendarEventId: 'ev1', calendarAt: '2026/10/25 14:00', interviewAt: '2026/10/25 14:00', statusChangedAt: '2026/10/23 11:00:00' };
+  assert.strictEqual(ctx.calendarAction_(rec, now), 'delete');
+  assert.deepStrictEqual(Array.from(ctx.scheduledActions_(rec, new Date(2026, 9, 25, 14, 0), 'meet')), []);
+  assert.ok(Object.values(ctx.STATUS).includes('選考辞退'));
 });

@@ -159,6 +159,8 @@ function statusText_(rec) {
       return name + '書類のご提出をお待ちしています。「書類」と送信すると提出フォームを開けます。';
     case STATUS.DOC_SUBMITTED:
       return name + '提出書類を確認中です。確認が終わり次第ご連絡します。';
+    case STATUS.WITHDRAWN:
+      return name + '選考を辞退されています。もう一度ご応募いただける場合は、このトークでお知らせください。';
     case STATUS.ACTIVE:
       return name + '毎月' + SHIFT_SEND_DAY + '日に翌月のシフト提出のご案内をお送りします（「シフト」と送信するといつでも提出・変更できます）。\n登録内容の変更は「変更」と送信してください。';
     default:
