@@ -675,6 +675,9 @@ function applyDeclinedText_(app) {
 
 // ---- 詳細連絡（確定したスタッフに担当者が送る） ----
 
+/** 詳細連絡に必ず載せる緊急連絡先（遅刻・体調不良など、当日に困ったときの連絡先） */
+var DETAIL_EMERGENCY_CONTACT = '前田 090-7873-8978';
+
 /** 「服装：…\n持ち物：…」（服装　持ち物 の列）→ 服装と持ち物に分ける */
 function splitDress_(text) {
   var dress = [], belongings = [];
@@ -754,6 +757,7 @@ function detailText_(f, slots) {
   var name = str_(f.contactName), phone = str_(f.contactPhone);
   if (name) parts.push('■集合担当：' + name + (phone ? '\n' + phone : ''));
   else if (phone) parts.push('■集合担当\n' + phone);
+  section('緊急連絡先', DETAIL_EMERGENCY_CONTACT);
   section('服装', f.dress);
   section('ギャランティ', f.pay);
   section('昼食', f.meal);
@@ -1177,8 +1181,8 @@ function endCheckDue_(app, now) {
 
 function endCheckText_() {
   return 'お疲れ様です。勤務終了予定時間になりました。\n\n' +
-    '本日の業務開始時間、終了時間、休憩時間\n' +
-    'お弁当支給の有無、日払い希望かどうかを返信してください。';
+    '本日の業務の開始時間、終了時間、休憩時間を返信してください。\n\n' +
+    '（返信の例）\n開始 9:00\n終了 18:00\n休憩 1時間';
 }
 
 function endThanksText_() {

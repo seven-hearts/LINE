@@ -67,7 +67,7 @@ function onText_(ev, userId, text) {
 
   // 出発確認への「はい」「いいえ」
   if (handleDepartureText_(ev, userId, text)) return;
-  // 勤務終了予定時間の終了確認への返信（勤務時間・お弁当・日払いなど）
+  // 勤務終了予定時間の終了確認への返信（開始時間・終了時間・休憩時間）
   if (handleEndReport_(ev, userId, text)) return;
   // 詳細連絡のあとの、交通費（往復）と出発時間の返信
   if (handleTravelReply_(ev, userId, text)) return;

@@ -426,6 +426,7 @@ test('詳細連絡の文面（依頼の例と同じ形）', () => {
     '■集合場所', '安満遺跡公園東広場にある', 'スターバックス コーヒー 高槻安満遺跡公園店前に', '',
     '■集合時間', '開始10分前', '',
     '■集合担当：前田', '090-7873-8978', '',
+    '■緊急連絡先', '前田 090-7873-8978', '',
     '■服装', '黒ズボン、華美でない上着、スニーカー', '',
     '■ギャランティ', '時給1180円＋交通費', '',
     '■昼食', '500円支給', '',
@@ -438,6 +439,8 @@ test('詳細連絡の文面（依頼の例と同じ形）', () => {
   assert.match(diff, /■時間\n9月21日\(月祝\) 9:00~17:30\n9月22日\(火祝\) 8:00~18:00\n\n/);
   // 空の項目は出さない
   assert.doesNotMatch(ctx.detailText_(Object.assign({}, f, { meal: '', contactName: '', contactPhone: '' }), lohas), /■昼食|■集合担当/);
+  // 集合担当がいなくても、緊急連絡先は必ず載せる
+  assert.match(ctx.detailText_(Object.assign({}, f, { contactName: '', contactPhone: '' }), lohas), /■緊急連絡先\n前田 090-7873-8978/);
   assert.match(ctx.detailText_(Object.assign({}, f, { contactName: '' }), lohas), /■集合担当\n090-7873-8978\n/);
   assert.match(ctx.travelRequestText_('ロハスミーツ高槻'), /「ロハスミーツ高槻」の交通費（往復）と出発時間/);
 });
@@ -804,7 +807,8 @@ test('終了確認：勤務終了予定時間に送る（確定・欠勤でな�
   // 日をまたぐ勤務は翌日の終了時刻
   assert.strictEqual(due({ start: '22:00', end: '05:00' }, t(5, 0, 21)), false);
   assert.strictEqual(due({ start: '22:00', end: '05:00' }, t(5, 0, 22)), true);
-  assert.strictEqual(ctx.endCheckText_(), 'お疲れ様です。勤務終了予定時間になりました。\n\n本日の業務開始時間、終了時間、休憩時間\nお弁当支給の有無、日払い希望かどうかを返信してください。');
+  assert.strictEqual(ctx.endCheckText_(), 'お疲れ様です。勤務終了予定時間になりました。\n\n本日の業務の開始時間、終了時間、休憩時間を返信してください。\n\n（返信の例）\n開始 9:00\n終了 18:00\n休憩 1時間');
+  assert.doesNotMatch(ctx.endCheckText_(), /お弁当|日払い/);
   assert.strictEqual(ctx.endThanksText_(), '返信ありがとうございます。本日もご勤務お疲れ様でした。\n\nお気をつけておかえりください');
 });
 
