@@ -212,12 +212,13 @@ COLUMNS[JOB_SHEET] = [
   ['oldSlotId', '旧枠ID']             // 枠IDを新しい形式に振り直す前の枠ID（送信済みの応募ボタン用）
 ];
 
+// 並び：だれが → 状態 → 案件と予定の時間 → 実際の勤務と給与・交通費・所得税 → やりとりの記録 → 応募日時・ID。
+// 既存のシートは setup（reorderColumns_）でこの順に並べ直す。
 COLUMNS[APPLY_SHEET] = [
-  ['appliedAt', '応募日時'],
+  ['name', '氏名'],
+  ['phone', '電話番号'],
   ['status', '状態'],              // 応募・確定・見送り・辞退
   ['workStatus', '勤務ステータス'], // 詳細送付済〜出勤・欠勤など（Jobs.gs の WORK_STATUS）
-  ['slotId', '枠ID'],
-  ['caseId', '案件ID'],
   ['title', 'タイトル'],
   ['date', '日程'],          // 「案件一覧」と同じ（変えると自動で反映）
   ['start', '開始予定時間'], // 〃
@@ -231,14 +232,12 @@ COLUMNS[APPLY_SHEET] = [
   ['payRate', '単価'],             // 〃
   ['pay', '給与額'],               // 自動：時給は 単価 × 実働時間、日給は 単価
   ['allowance', '手当'],           // 各種手当（担当者が入力。課税。給与の振込額に含める）
+  ['fare', '交通費（往復）'],      // スタッフからの返信（非課税。給与の振込額に含める）
   ['incomeTax', '所得税（丙欄）'],  // 給与の振込データを作ると自動で入る（日額表の丙欄。給与額＋手当に対して）
   ['paidOn', '給与振込日'],        // 〃（入っている行は、次の振込データに含めない）
-  ['name', '氏名'],
-  ['phone', '電話番号'],
   ['userId', 'LINEユーザーID'],
   ['notifiedAt', '結果の通知日時'],
   ['detailSentAt', '詳細連絡日時'],
-  ['fare', '交通費（往復）'],      // スタッフからの返信
   ['departure', '出発時間'],        // スタッフからの返信
   ['travelRepliedAt', '交通費・出発時間の返信日時'],
   ['departCheckSentAt', '出発確認の送信日時'],
@@ -248,7 +247,10 @@ COLUMNS[APPLY_SHEET] = [
   ['endCheckSentAt', '終了確認の送信日時'],
   ['endReport', '終了報告（返信内容）'],
   ['endReportAt', '終了報告の日時'],
-  ['adminMemo', '管理メモ']
+  ['adminMemo', '管理メモ'],
+  ['appliedAt', '応募日時'],
+  ['slotId', '枠ID'],
+  ['caseId', '案件ID']
 ];
 
 COLUMNS[PAYROLL_SHEET] = [
@@ -575,6 +577,35 @@ function migrateOnbColumns_(ss) {
   if (!sh || !sh.getLastColumn()) return;
   insertColumnAfterLabel_(sh, '銀行名', '銀行コード');
   insertColumnAfterLabel_(sh, '支店名', '支店番号');
+}
+
+/**
+ * シートの列を COLUMNS の順に並べ替える（列ごと動かすので、値・書式・入力規則もそのまま）。
+ * COLUMNS にない列は右端に残す。並んでいれば何もしない。動かした列の数を返す
+ */
+function reorderColumns_(sh, name) {
+  if (!sh || !sh.getLastColumn()) return 0;
+  var want = COLUMNS[name].map(function (c) { return c[1]; });
+  var moved = 0;
+  var pos = 0;
+  want.forEach(function (label) {
+    var header = headerMap_(sh);
+    if (header[label] === undefined) return;
+    var cur = header[label] + 1;
+    pos++;
+    if (cur === pos) return;
+    // 左から順に決めていくので、動かす列はいつも目的の位置より右にある
+    sh.moveColumns(sh.getRange(1, cur, sh.getMaxRows(), 1), pos);
+    moved++;
+  });
+  return moved;
+}
+
+/** シート全体の文字をメイリオ・11にする（あとから足した行も、上の行の書式を引き継ぐ） */
+var SHEET_FONT = 'Meiryo';
+var SHEET_FONT_SIZE = 11;
+function applySheetFont_(sh) {
+  sh.getRange(1, 1, sh.getMaxRows(), sh.getMaxColumns()).setFontFamily(SHEET_FONT).setFontSize(SHEET_FONT_SIZE);
 }
 
 /** 「スタッフ登録」でグレーにするステータス（選考が終わった人・やめた人） */

@@ -21,6 +21,7 @@ function setupJobSheets_(ss) {
   var jobs = ensureSheet_(ss, JOB_SHEET);
   migrateApplyColumns_(ss.getSheetByName(APPLY_SHEET));
   ensureSheet_(ss, APPLY_SHEET);
+  reorderColumns_(ss.getSheetByName(APPLY_SHEET), APPLY_SHEET);
   ensureSheet_(ss, IMPORT_SHEET);
 
   var h = headerMap_(jobs);
@@ -47,6 +48,7 @@ function setupJobSheets_(ss) {
   ['交通費（往復）', '単価', '給与額', '手当', '所得税（丙欄）'].forEach(function (l) { acol(l).setNumberFormat('¥#,##0'); });
   ['休憩時間', '実働時間'].forEach(function (l) { acol(l).setNumberFormat('0.##'); });
   acol('給与形態').setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(UNITS, true).build());
+  applySheetFont_(apply);
   fillApplyPayTerms_();
 }
 

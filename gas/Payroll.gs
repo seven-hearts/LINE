@@ -280,6 +280,7 @@ function ensurePayrollColumns_() {
   if (h['所得税（丙欄）'] === undefined || h['給与振込日'] === undefined) {
     migrateApplyColumns_(sh);
     ensureSheet_(ss, APPLY_SHEET);
+    reorderColumns_(sh, APPLY_SHEET);
   }
 }
 

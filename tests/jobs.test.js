@@ -756,13 +756,17 @@ test('以前の「案件応募」：G列「時間」を「開始時間」「終�
   c.migrateApplyColumns_(sheet); // 2回目は何もしない
   assert.strictEqual(grid[0].length, 20);
   // 新しく作るシートも同じ並び（H列・I列が予定、その右に実際の勤務と給与）
-  assert.deepStrictEqual(plain(c.COLUMNS[c.APPLY_SHEET].map((x) => x[1])).slice(6, 19), ['日程', '開始予定時間', '終了予定時間', ...work]);
+  // 新しく作るシートの並び：氏名・電話番号が先頭、交通費は手当の右、応募日時・枠ID・案件IDは右端
+  const fresh = plain(c.COLUMNS[c.APPLY_SHEET].map((x) => x[1]));
+  assert.deepStrictEqual(fresh.slice(0, 8), ['氏名', '電話番号', '状態', '勤務ステータス', 'タイトル', '日程', '開始予定時間', '終了予定時間']);
+  assert.deepStrictEqual(fresh.slice(8, 19), ['勤務開始時間', '勤務終了時間', '休憩時間', '実働時間', '給与形態', '単価', '給与額', '手当', '交通費（往復）', '所得税（丙欄）', '給与振込日']);
+  assert.deepStrictEqual(fresh.slice(-3), ['応募日時', '枠ID', '案件ID']);
   // 選択肢：状態は4つ、勤務ステータスは8つ
   assert.deepStrictEqual(Object.values(plain(c.APPLY_STATUS)), ['応募', '確定', '見送り', '辞退']);
   assert.deepStrictEqual(Object.values(plain(c.WORK_STATUS)),
     ['詳細送付済', '出発時間確認済', '出発確認済', '出発確認中', '出勤', '遅刻', '連絡欠勤', '無断欠勤']);
   const labels = plain(c.COLUMNS[c.APPLY_SHEET].map((x) => x[1]));
-  assert.deepStrictEqual(labels.slice(1, 3), ['状態', '勤務ステータス']); // B列・C列
+  assert.deepStrictEqual(labels.slice(2, 4), ['状態', '勤務ステータス']); // C列・D列
 });
 
 test('詳細連絡を送ると「詳細送付済」になり、前の返信・出発確認は消える（送り直し）', () => {
@@ -970,7 +974,7 @@ test('「案件応募」で二重に確定にすると、元に戻して管理�
   vm.runInContext("headerMap_ = function () { var m = {}; COLUMNS[APPLY_SHEET].forEach(function (x, i) { m[x[1]] = i; }); return m; };" +
     "Utilities.formatDate = function () { return '10/20 12:00'; };", c);
   const ev = (row, oldValue) => ({
-    range: { getSheet: () => sheet, getColumn: () => 2, getLastColumn: () => 2, getRow: () => row, getLastRow: () => row },
+    range: { getSheet: () => sheet, getColumn: () => 3, getLastColumn: () => 3, getRow: () => row, getLastRow: () => row },
     oldValue, source: { toast: (m, t) => toasts.push([t, m]) }
   });
   c.onApplyEdit_(ev(3, '応募'));
@@ -1166,4 +1170,31 @@ test('送信履歴：1人1行で記録し、名前を付ける（記録に失敗
   assert.strictEqual(log[4][5], '送れませんでした：今月のメッセージ送信数の上限に達しました');
   c.spreadsheet_ = () => { throw new Error('no sheet'); };
   c.logSend_('個別', ['U1'], [c.textMessage_('x')], true); // 例外を外に出さない
+});
+
+test('「案件応募」の列を新しい順に並べ直す（値も一緒に動く）', () => {
+  const c = vm.createContext({});
+  for (const f of ['Options.gs', 'Validation.gs', 'Line.gs', 'Sheet.gs']) {
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'gas', f), 'utf8'), c, { filename: f });
+  }
+  // 以前の並び（応募日時が先頭、交通費は氏名などの後ろ）＋ COLUMNS にない列
+  const old = ['応募日時', '状態', '勤務ステータス', '枠ID', '案件ID', 'タイトル', '日程', '開始予定時間', '終了予定時間',
+    '勤務開始時間', '勤務終了時間', '休憩時間', '実働時間', '給与形態', '単価', '給与額', '手当', '所得税（丙欄）', '給与振込日',
+    '氏名', '電話番号', 'LINEユーザーID', '結果の通知日時', '詳細連絡日時', '交通費（往復）', '出発時間', '交通費・出発時間の返信日時',
+    '出発確認の送信日時', '出発確認の回答', '出発確認の回答日時', '担当者への通知日時', '終了確認の送信日時', '終了報告（返信内容）', '終了報告の日時', '管理メモ', 'メモ（手入力）'];
+  const grid = [old.slice(), old.map((l) => 'v:' + l)];
+  const sheet = {
+    getLastColumn: () => grid[0].length,
+    getMaxRows: () => grid.length,
+    getRange: (r, col, nr, nc) => ({
+      col, getValues: () => grid.slice(r - 1, r - 1 + (nr || 1)).map((row) => row.slice(col - 1, col - 1 + (nc || 1)))
+    }),
+    moveColumns: (range, to) => grid.forEach((row) => { const [v] = row.splice(range.col - 1, 1); row.splice(to - 1, 0, v); })
+  };
+  const moved = c.reorderColumns_(sheet, c.APPLY_SHEET);
+  assert.ok(moved > 0);
+  const want = plain(c.COLUMNS[c.APPLY_SHEET].map((x) => x[1]));
+  assert.deepStrictEqual(grid[0], [...want, 'メモ（手入力）']);
+  grid[0].forEach((l, i) => assert.strictEqual(grid[1][i], 'v:' + l));
+  assert.strictEqual(c.reorderColumns_(sheet, c.APPLY_SHEET), 0); // 2回目は何もしない
 });
