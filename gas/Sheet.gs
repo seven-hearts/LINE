@@ -19,6 +19,7 @@ var PARTNER_SHEET = '取引先一覧'; // freee の取引先（「案件一覧�
 var MANUAL_LOG_SHEET = 'マニュアル閲覧';     // スタッフマニュアルを開いた・章を読み終えた記録（Manual.gs）
 var MANUAL_SUMMARY_SHEET = 'マニュアル集計'; // 閲覧数のまとめ（毎朝とメニューから作り直す）
 var RICHMENU_SHEET = 'リッチメニュー設定';    // スタッフ用リッチメニューの画像とボタン（RichMenu.gs）
+var PAYROLL_SHEET = '給与振込';                // 給与の振込データを作った記録（1人1行。Payroll.gs）
 
 var STATUS = {
   PRE: '仮登録',                    // フォーム送信済み。書類選考待ち
@@ -229,7 +230,9 @@ COLUMNS[APPLY_SHEET] = [
   ['payUnit', '給与形態'],         // 時給・日給（応募時に「スタッフ向け給与」から入る）
   ['payRate', '単価'],             // 〃
   ['pay', '給与額'],               // 自動：時給は 単価 × 実働時間、日給は 単価
-  ['allowance', '手当'],           // 各種手当（担当者が入力。給与の振込額に含める）
+  ['allowance', '手当'],           // 各種手当（担当者が入力。課税。給与の振込額に含める）
+  ['incomeTax', '所得税（丙欄）'],  // 給与の振込データを作ると自動で入る（日額表の丙欄。給与額＋手当に対して）
+  ['paidOn', '給与振込日'],        // 〃（入っている行は、次の振込データに含めない）
   ['name', '氏名'],
   ['phone', '電話番号'],
   ['userId', 'LINEユーザーID'],
@@ -246,6 +249,27 @@ COLUMNS[APPLY_SHEET] = [
   ['endReport', '終了報告（返信内容）'],
   ['endReportAt', '終了報告の日時'],
   ['adminMemo', '管理メモ']
+];
+
+COLUMNS[PAYROLL_SHEET] = [
+  ['createdAt', '作成日時'],
+  ['payDate', '振込日'],
+  ['period', '対象の勤務日'],
+  ['name', '氏名'],
+  ['userId', 'LINEユーザーID'],
+  ['workDays', '勤務日数'],
+  ['pay', '給与額'],
+  ['allowance', '手当'],
+  ['taxable', '課税対象額'],      // 給与額＋手当
+  ['tax', '所得税（丙欄）'],
+  ['fare', '交通費（非課税）'],
+  ['net', '振込額'],              // 課税対象額 − 所得税 ＋ 交通費
+  ['bankCode', '銀行コード'],
+  ['branchCode', '支店番号'],
+  ['accountType', '口座種別'],     // 1 普通・2 当座・4 貯蓄
+  ['accountNumber', '口座番号'],
+  ['holder', '口座名義（振込データ）'],
+  ['detail', '内訳（日ごと）']
 ];
 
 COLUMNS[MANUAL_LOG_SHEET] = [
@@ -283,6 +307,8 @@ COLUMNS[IMPORT_SHEET] = [
  */
 var TEXT_COLUMNS = {};
 TEXT_COLUMNS[JOB_SHEET] = ['日程', '開始時間', '終了時間', '曜日', '売上計上月', '入金予定月', '集合時間', '集合担当者名', '集合担当連絡先', '詳細連絡の画像', '配信日時', '案件ID', '枠ID', '取込ID', 'freee請求書番号', '旧枠ID'];
+
+TEXT_COLUMNS[PAYROLL_SHEET] = ['作成日時', '振込日', '対象の勤務日', 'LINEユーザーID', '銀行コード', '支店番号', '口座種別', '口座番号', '口座名義（振込データ）', '内訳（日ごと）'];
 
 var spreadsheetCache_ = null;
 

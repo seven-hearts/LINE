@@ -44,7 +44,7 @@ function setupJobSheets_(ss) {
     SpreadsheetApp.newDataValidation().requireValueInList(statusValues, true).setAllowInvalid(false).build());
   var ah = headerMap_(apply);
   var acol = function (label) { return apply.getRange(2, ah[label] + 1, apply.getMaxRows() - 1, 1); };
-  ['交通費（往復）', '単価', '給与額', '手当'].forEach(function (l) { acol(l).setNumberFormat('¥#,##0'); });
+  ['交通費（往復）', '単価', '給与額', '手当', '所得税（丙欄）'].forEach(function (l) { acol(l).setNumberFormat('¥#,##0'); });
   ['休憩時間', '実働時間'].forEach(function (l) { acol(l).setNumberFormat('0.##'); });
   acol('給与形態').setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(UNITS, true).build());
   fillApplyPayTerms_();

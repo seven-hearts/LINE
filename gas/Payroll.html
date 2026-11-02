@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html>
+<head>
+<base target="_top">
+<meta charset="utf-8">
+<style>
+  :root { --brand: #381E19; --line: #ddd; --muted: #777; --bg: #faf7f5; --err: #c62828; --warn: #8a5a00; }
+  * { box-sizing: border-box; }
+  body { font-family: "Hiragino Sans", "Noto Sans JP", sans-serif; font-size: 13px; margin: 0; padding: 12px 16px 90px; color: #222; }
+  h2 { font-size: 14px; margin: 14px 0 8px; color: var(--brand); }
+  input[type=text], input[type=date] { font: inherit; padding: 5px 6px; border: 1px solid var(--line); border-radius: 4px; }
+  button { font: inherit; padding: 7px 16px; border-radius: 4px; border: 1px solid var(--brand); background: #fff; color: var(--brand); cursor: pointer; }
+  button.primary { background: var(--brand); color: #fff; }
+  button:disabled { opacity: .5; cursor: default; }
+  .msg { margin: 8px 0; padding: 8px 10px; border-radius: 4px; display: none; white-space: pre-wrap; }
+  .msg.err { display: block; background: #fdecea; color: var(--err); }
+  .msg.info { display: block; background: #eef6ee; color: #2e7d32; }
+  .msg a { color: inherit; font-weight: bold; }
+  .hint { color: var(--muted); font-size: 11px; }
+  .row { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; margin: 6px 0; }
+  .row label { display: flex; gap: 6px; align-items: center; }
+  .card { border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; margin-bottom: 10px; background: #fff; }
+  .card.on { border-color: var(--brand); background: var(--bg); }
+  .card-head { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+  .card-head strong { color: var(--brand); font-size: 14px; }
+  .meta { color: var(--muted); font-size: 11px; margin: 4px 0 6px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th, td { padding: 4px 6px; border-bottom: 1px solid #f0ebe7; text-align: left; }
+  td.n, th.n { text-align: right; white-space: nowrap; }
+  tr.sum td { border-bottom: none; font-weight: bold; }
+  .problem { color: var(--err); font-size: 12px; margin-top: 6px; white-space: pre-wrap; }
+  .warn { color: var(--warn); font-size: 12px; margin-top: 6px; white-space: pre-wrap; }
+  .total { font-size: 14px; font-weight: bold; color: var(--brand); margin: 8px 0; }
+  .bar { position: fixed; left: 0; right: 0; bottom: 0; padding: 10px 16px; background: #fff; border-top: 1px solid var(--line); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+  <div id="msg" class="msg"></div>
+  <div id="yearWarn" class="msg"></div>
+
+  <h2>① 対象の勤務日</h2>
+  <div class="row">
+    <input type="date" id="from"> 〜 <input type="date" id="to">
+    <label><input type="checkbox" id="includePaid"> 振込データを作った行も含める（作り直すとき）</label>
+    <button id="check">内容を確認</button>
+  </div>
+  <div class="hint">「案件応募」で状態が「確定」の行（欠勤を除く）を、人ごとにまとめます。所得税は日ごとに「給与額＋手当」に対して日額表の丙欄で計算し、交通費（往復）は非課税として振込額に足します。</div>
+
+  <div id="list"></div>
+
+  <h2>② 振込元と振込日</h2>
+  <div class="row">
+    <label>振込依頼人名 <input type="text" id="requesterName" style="width:160px"></label>
+    <label>振込元の支店番号 <input type="text" id="branchCode" style="width:60px" maxlength="3" placeholder="3桁"></label>
+    <label>口座番号（普通預金） <input type="text" id="accountNumber" style="width:100px" maxlength="7" placeholder="7桁"></label>
+  </div>
+  <div class="row">
+    <label>振込日 <input type="date" id="payDate"></label>
+    <span class="hint">WEB総振でアップロードするときの「振込指定日」にも、同じ日を入れてください。</span>
+  </div>
+  <div class="hint">振込依頼人名は半角カナにして、相手の通帳に表示されます。振込元の口座は次回のために保存します（振込依頼人コードは WEB総振では使わないので空にしています）。</div>
+
+  <div class="bar">
+    <button id="create" class="primary" disabled>振込データを作る</button>
+    <button onclick="google.script.host.close()">閉じる</button>
+    <span class="hint" id="barInfo"></span>
+  </div>
+
+<script>
+var people = [];
+var lastReq = null;
+function $(id) { return document.getElementById(id); }
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+function yen(n) { return '¥' + Math.round(n).toLocaleString('ja-JP'); }
+function showMsg(text, kind) { var m = $('msg'); m.textContent = text; m.className = 'msg ' + (kind || 'err'); }
+function toInput(ymd) { return String(ymd || '').replace(/\//g, '-'); }
+function fromInput(v) { return String(v || '').replace(/-/g, '/'); }
+var TYPES = { '1': '普通', '2': '当座', '4': '貯蓄' };
+
+google.script.run.withSuccessHandler(function (r) {
+  $('from').value = toInput(r.from);
+  $('to').value = toInput(r.to);
+  $('requesterName').value = r.requesterName;
+  $('branchCode').value = r.branchCode;
+  $('accountNumber').value = r.accountNumber;
+  if (r.taxYear !== r.thisYear) {
+    var w = $('yearWarn');
+    w.textContent = '所得税の表は令和' + (r.taxYear - 2018) + '年分（' + r.taxYear + '年）のものです。今年の国税庁の税額表と見比べて、変わっていれば gas/Payroll.gs を直してください。';
+    w.className = 'msg err';
+  }
+}).withFailureHandler(function (e) { showMsg(e.message); }).payrollInit();
+
+function req() {
+  return { from: fromInput($('from').value), to: fromInput($('to').value), includePaid: $('includePaid').checked };
+}
+function selected() {
+  return people.filter(function (p, i) { var cb = $('p' + i); return cb && cb.checked; });
+}
+function updateButton() {
+  var s = selected();
+  var total = s.reduce(function (a, p) { return a + p.net; }, 0);
+  $('create').disabled = !s.length;
+  $('create').textContent = s.length ? '振込データを作る（' + s.length + '人・' + yen(total) + '）' : '振込データを作る';
+  people.forEach(function (p, i) { var c = $('card' + i); if (c) c.className = 'card' + ($('p' + i).checked ? ' on' : ''); });
+}
+
+$('check').onclick = function () {
+  var r = req();
+  if (!r.from || !r.to) { showMsg('対象の勤務日を入れてください'); return; }
+  $('check').disabled = true;
+  $('msg').className = 'msg';
+  google.script.run.withSuccessHandler(function (list) {
+    $('check').disabled = false;
+    people = list;
+    lastReq = r;
+    if (!list.length) { $('list').innerHTML = '<p>この期間に振り込む行はありません。</p>'; updateButton(); return; }
+    var sum = { taxable: 0, tax: 0, fare: 0, net: 0 };
+    list.forEach(function (p) { if (!p.problems.length) { sum.taxable += p.taxable; sum.tax += p.tax; sum.fare += p.fare; sum.net += p.net; } });
+    $('list').innerHTML = '<div class="total">' + list.length + '人（振込できる人の合計：課税 ' + yen(sum.taxable) + '・所得税 ' + yen(sum.tax) +
+      '・交通費 ' + yen(sum.fare) + '・振込額 ' + yen(sum.net) + '）</div>' + list.map(function (p, i) {
+      var ok = !p.problems.length;
+      var a = p.account;
+      return '<div class="card" id="card' + i + '"><div class="card-head">' +
+        '<input type="checkbox" id="p' + i + '"' + (ok ? ' checked' : ' disabled') + '>' +
+        '<strong>' + esc(p.name) + '</strong><span>' + p.workDays + '日</span><span>振込額 <b>' + yen(p.net) + '</b></span></div>' +
+        '<div class="meta">' + (a ? esc(a.bank) + ' ' + esc(a.branch) + '／' + esc(TYPES[a.type] || '') + ' ' + esc(a.number) + '／名義 ' + esc(a.holder) : '口座の情報がありません') + '</div>' +
+        '<table><tr><th>日程</th><th>案件</th><th class="n">給与＋手当（課税）</th><th class="n">所得税（丙欄）</th><th class="n">交通費（非課税）</th></tr>' +
+        p.days.map(function (d) {
+          return '<tr><td>' + esc(d.date) + '</td><td>' + esc(d.titles) + '</td><td class="n">' + yen(d.taxable) + '</td><td class="n">' + yen(d.tax) + '</td><td class="n">' + yen(d.fare) + '</td></tr>';
+        }).join('') +
+        '<tr class="sum"><td colspan="2" class="n">合計</td><td class="n">' + yen(p.taxable) + '</td><td class="n">−' + yen(p.tax) + '</td><td class="n">＋' + yen(p.fare) + '</td></tr></table>' +
+        (p.allowance ? '<div class="meta">うち手当 ' + yen(p.allowance) + '</div>' : '') +
+        (p.paid.length ? '<div class="warn">振込データを作ったことがある日：' + esc(p.paid.join('、')) + '</div>' : '') +
+        (p.problems.length ? '<div class="problem">シートを直してから、もう一度「内容を確認」を押してください：\n' + esc(p.problems.join('\n')) + '</div>' : '') +
+        (p.warnings.length ? '<div class="warn">確認してください：\n' + esc(p.warnings.join('\n')) + '</div>' : '') +
+        '</div>';
+    }).join('');
+    updateButton();
+  }).withFailureHandler(function (e) { $('check').disabled = false; showMsg(e.message); }).payrollPreview(r);
+};
+
+document.addEventListener('change', function (e) {
+  if (['from', 'to', 'includePaid'].indexOf(e.target.id) >= 0) { people = []; $('list').innerHTML = ''; updateButton(); return; }
+  if (/^p\d+$/.test(e.target.id)) updateButton();
+});
+
+function download(name, base64) {
+  var bin = atob(base64), bytes = new Uint8Array(bin.length);
+  for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  var url = URL.createObjectURL(new Blob([bytes], { type: 'text/csv' }));
+  var a = document.createElement('a');
+  a.href = url; a.download = name; a.textContent = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  return url;
+}
+
+$('create').onclick = function () {
+  var s = selected();
+  if (!s.length || !lastReq) return;
+  var payDate = fromInput($('payDate').value);
+  if (!payDate) { showMsg('振込日を選んでください'); return; }
+  var total = s.reduce(function (a, p) { return a + p.net; }, 0);
+  if (!confirm(s.length + '人・合計 ' + yen(total) + ' の振込データを作ります（振込日 ' + payDate + '）。\n「案件応募」に所得税と給与振込日を記録します。よろしいですか？')) return;
+  $('create').disabled = true;
+  $('check').disabled = true;
+  $('create').textContent = '作成中…';
+  google.script.run.withSuccessHandler(function (r) {
+    $('check').disabled = false;
+    people = [];
+    $('list').innerHTML = '';
+    updateButton();
+    var url = download(r.fileName, r.base64);
+    var m = $('msg');
+    m.className = 'msg info';
+    m.innerHTML = esc(r.count + '人・合計 ' + yen(r.total) + ' の振込データを作りました（振込日 ' + r.payDate + '）。') +
+      '<br>ダウンロードされない場合は <a href="' + url + '" download="' + esc(r.fileName) + '">' + esc(r.fileName) + '</a> をクリックしてください。' +
+      '<br>PayPay銀行の WEB総振 の「振込データ照会・作成」でアップロードし（振込指定日 ' + esc(r.payDate) + '）、承認してください。' +
+      '<br>記録はシート「給与振込」にあります。';
+  }).withFailureHandler(function (e) {
+    $('check').disabled = false;
+    updateButton();
+    showMsg(e.message);
+  }).payrollCreate({
+    from: lastReq.from, to: lastReq.to, includePaid: lastReq.includePaid, payDate: payDate,
+    keys: s.map(function (p) { return p.key; }),
+    requesterName: $('requesterName').value, branchCode: $('branchCode').value, accountNumber: $('accountNumber').value
+  });
+};
+</script>
+</body>
+</html>

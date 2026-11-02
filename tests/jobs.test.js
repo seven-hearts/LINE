@@ -749,14 +749,14 @@ test('以前の「案件応募」：G列「時間」を「開始時間」「終�
     getMaxRows: () => grid.length
   };
   c.migrateApplyColumns_(sheet);
-  const work = ['勤務開始時間', '勤務終了時間', '休憩時間', '実働時間', '給与形態', '単価', '給与額', '手当'];
+  const work = ['勤務開始時間', '勤務終了時間', '休憩時間', '実働時間', '給与形態', '単価', '給与額', '手当', '所得税（丙欄）', '給与振込日'];
   assert.deepStrictEqual(grid[0], ['応募日時', '状態', '勤務ステータス', '枠ID', '案件ID', 'タイトル', '日程', '開始予定時間', '終了予定時間', ...work, '氏名']);
-  assert.deepStrictEqual(grid[1], ['x', '確定', '出発確認済', 'A', 'a', 't', '2026/10/21', '08:30', '15:30', '', '', '', '', '', '', '', '', '山田']);
+  assert.deepStrictEqual(grid[1], ['x', '確定', '出発確認済', 'A', 'a', 't', '2026/10/21', '08:30', '15:30', '', '', '', '', '', '', '', '', '', '', '山田']);
   assert.deepStrictEqual(grid[2].slice(1, 3), ['見送り', '']);
   c.migrateApplyColumns_(sheet); // 2回目は何もしない
-  assert.strictEqual(grid[0].length, 18);
+  assert.strictEqual(grid[0].length, 20);
   // 新しく作るシートも同じ並び（H列・I列が予定、その右に実際の勤務と給与）
-  assert.deepStrictEqual(plain(c.COLUMNS[c.APPLY_SHEET].map((x) => x[1])).slice(6, 17), ['日程', '開始予定時間', '終了予定時間', ...work]);
+  assert.deepStrictEqual(plain(c.COLUMNS[c.APPLY_SHEET].map((x) => x[1])).slice(6, 19), ['日程', '開始予定時間', '終了予定時間', ...work]);
   // 選択肢：状態は4つ、勤務ステータスは8つ
   assert.deepStrictEqual(Object.values(plain(c.APPLY_STATUS)), ['応募', '確定', '見送り', '辞退']);
   assert.deepStrictEqual(Object.values(plain(c.WORK_STATUS)),
