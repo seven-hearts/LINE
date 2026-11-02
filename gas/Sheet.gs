@@ -601,7 +601,7 @@ function reorderColumns_(sh, name) {
   return moved;
 }
 
-/** シート全体の文字をメイリオ・11にする（あとから足した行も、上の行の書式を引き継ぐ） */
+/** シート全体の文字をメイリオ・11にする（setup ですべてのシートに。新しく作るシート・作り直す集計にも。あとから足した行は上の行の書式を引き継ぐ） */
 var SHEET_FONT = 'Meiryo';
 var SHEET_FONT_SIZE = 11;
 function applySheetFont_(sh) {
@@ -638,7 +638,11 @@ function grayOutInactiveRows_(sh, statusCol) {
 
 /** シートの作成・見出し・書式を整える（何度実行しても安全） */
 function ensureSheet_(ss, name) {
-  var sh = ss.getSheetByName(name) || ss.insertSheet(name);
+  var sh = ss.getSheetByName(name);
+  if (!sh) {
+    sh = ss.insertSheet(name);
+    applySheetFont_(sh);
+  }
   var cols = COLUMNS[name];
   var existing = sh.getLastColumn() ? sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0] : [];
   var missing = cols.map(function (c) { return c[1]; }).filter(function (l) { return existing.indexOf(l) < 0; });

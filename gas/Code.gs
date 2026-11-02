@@ -98,7 +98,7 @@ function doPost(e) {
  * コードの版。コードを変えるたびに更新する。
  * checkSettings がウェブアプリ（デプロイ済み）の版と比べて、デプロイし忘れを見つける。
  */
-var APP_VERSION = '2026-11-02.3';
+var APP_VERSION = '2026-11-02.4';
 
 function doGet() {
   return json_({ ok: true, service: 'sevenhearts-staff-registration', version: APP_VERSION });
@@ -170,6 +170,9 @@ function setup() {
     reg.getRange(2, col, reg.getMaxRows() - 1, 1).setDataValidation(checkbox);
   });
   clearEmptyRows_(reg);
+
+  // すべてのシートの文字をメイリオ・11に（シフト集計など、自分で作ったシートも含む）
+  ss.getSheets().forEach(applySheetFont_);
 
   var handlers = ScriptApp.getProjectTriggers().map(function (t) { return t.getHandlerFunction(); });
   if (handlers.indexOf('onStatusEdit') < 0) ScriptApp.newTrigger('onStatusEdit').forSpreadsheet(ss).onEdit().create();

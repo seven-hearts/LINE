@@ -182,6 +182,7 @@ function richMenuDefinition_(settings, size, manualUrl) {
 function ensureRichMenuSheet_(ss) {
   if (ss.getSheetByName(RICHMENU_SHEET)) return false;
   var sh = ss.insertSheet(RICHMENU_SHEET);
+  applySheetFont_(sh);
   var values = [['項目', '値', '説明']].concat(RICHMENU_DEFAULTS);
   sh.getRange(1, 1, values.length, 3).setValues(values);
   sh.getRange(1, 1, 1, 3).setFontWeight('bold').setBackground('#f3e5f5');

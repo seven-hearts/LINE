@@ -379,6 +379,7 @@ function writeShiftSummary_(key) {
   var sh = ss.getSheetByName(name) || ss.insertSheet(name);
   sh.getRange(1, 1, sh.getMaxRows(), sh.getMaxColumns()).clearNote();
   sh.clear();
+  applySheetFont_(sh);
 
   var width = summary.areas.length + 3;
   function line(cells) {
@@ -410,7 +411,7 @@ function writeShiftSummary_(key) {
   sh.getRange(1, 1, rows.length, width).setValues(rows);
   sh.getRange(firstDayRow + 1, 1, notes.length, width).setNotes(notes);
 
-  sh.getRange(1, 1).setFontWeight('bold').setFontSize(12);
+  sh.getRange(1, 1).setFontWeight('bold');
   sh.getRange(2, 1, 2, 1).setFontColor('#6f625b');
   sh.getRange(headerRow + 1, 1, 1, width).setFontWeight('bold').setBackground('#f3e5f5');
   sh.getRange(headerRow + 2, 1, 1, width).setFontColor('#6f625b').setBackground('#fafafa');

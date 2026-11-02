@@ -308,12 +308,12 @@ function updateManualSummary() {
 
   var sh = ss.getSheetByName(MANUAL_SUMMARY_SHEET) || ss.insertSheet(MANUAL_SUMMARY_SHEET);
   sh.clear();
+  applySheetFont_(sh);
   sh.getRange(1, 1, table.rows.length, table.rows[0].length).setValues(table.rows);
   table.titles.forEach(function (r) { sh.getRange(r + 1, 1).setFontWeight('bold').setFontColor('#381e19'); });
   table.heads.forEach(function (r) {
     sh.getRange(r + 1, 1, 1, table.rows[0].length).setFontWeight('bold').setBackground('#f3e5f5');
   });
-  sh.getRange(1, 1).setFontSize(13);
   sh.setColumnWidth(1, 200);
   sh.setColumnWidths(2, 5, 140);
   return table;
