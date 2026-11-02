@@ -632,7 +632,7 @@ PayPay銀行の **WEB総振**（総合振込）に取り込むファイルを作
 
 ### 使い始める（最初に1回だけ）
 
-Apps Script に `gas/Payroll.gs` を `Payroll` という名前のスクリプトとして、`gas/Payroll.html` を「＋ > HTML」で `Payroll` という名前で追加し、
+Apps Script に `gas/Payroll.gs` を `Payroll` という名前のスクリプトとして、`gas/PayrollDialog.html` を「＋ > HTML」で `PayrollDialog` という名前で追加し（スクリプトと同じ名前にはできません）、
 `Code.gs`・`Jobs.gs`・`JobsApp.gs`・`Sheet.gs`・`Interview.gs` を貼り直して、スプレッドシートを開き直します。
 「案件応募」の「所得税（丙欄）」「給与振込日」の列は、初めて画面を開いたときに「手当」の右に自動で足されます。
 
@@ -663,7 +663,7 @@ Apps Script に `gas/Payroll.gs` を `Payroll` という名前のスクリプト
 | `マニュアル原稿/` | マニュアルの元の画像（章ごとのフォルダ）。ここに入れると `.github/workflows/manual.yml` が `scripts/build-manual.js` で変換する |
 | `gas/Manual.gs`・`gas/RichMenu.gs` | マニュアルの閲覧数の記録・集計と、スタッフ用リッチメニュー |
 | `gas/Jobs.gs`・`gas/JobsApp.gs`・`gas/JobImport.html`・`gas/JobSend.html`・`gas/DetailSend.html` | 案件の取り込み（Gemini／Claude で読み取り）と LINE 配信・応募 |
-| `gas/Payroll.gs`・`gas/Payroll.html` | 給与の所得税（日額表の丙欄）と PayPay銀行 WEB総振の振込データ |
+| `gas/Payroll.gs`・`gas/PayrollDialog.html` | 給与の所得税（日額表の丙欄）と PayPay銀行 WEB総振の振込データ |
 | `tests/` | 入力チェック、トークでのやりとり、案件の計算と配信、マニュアルの集計とリッチメニューのテスト（`npm test`） |
 
 サーバーを借りる必要はなく、LINE・Google・GitHubの無料の範囲で動きます。
@@ -691,7 +691,7 @@ Apps Script に `gas/Payroll.gs` を `Payroll` という名前のスクリプト
 1. Googleスプレッドシートを新規作成する（例：「セブンハーツ スタッフ名簿」）
 2. メニューの「拡張機能 > Apps Script」を開く
 3. `gas/` の各ファイル（`Code.gs`、`Api.gs`、`Webhook.gs`、`Sheet.gs`、`Line.gs`、`Validation.gs`、`Options.gs`、`Chat.gs`、`Interview.gs`、`Diagnostics.gs`、`Jobs.gs`、`JobsApp.gs`、`Shift.gs`、`Manual.gs`、`RichMenu.gs`、`Freee.gs`、`Payroll.gs`）を、同じ名前のファイルとして作成し、内容を貼り付ける
-   - `JobImport.html`・`JobSend.html`・`DetailSend.html`・`FreeeInvoice.html`・`ManualApply.html`・`Payroll.html` は「＋ > HTML」で `JobImport`・`JobSend`・`DetailSend`・`FreeeInvoice`・`ManualApply`・`Payroll`（`.html` は付けない）という名前で作成し、内容を貼り付ける
+   - `JobImport.html`・`JobSend.html`・`DetailSend.html`・`FreeeInvoice.html`・`ManualApply.html`・`PayrollDialog.html` は「＋ > HTML」で `JobImport`・`JobSend`・`DetailSend`・`FreeeInvoice`・`ManualApply`・`PayrollDialog`（`.html` は付けない）という名前で作成し、内容を貼り付ける
 4. 「プロジェクトの設定」で「appsscript.json マニフェスト ファイルをエディタで表示する」をオンにし、`gas/appsscript.json` の内容を貼り付ける
 5. 「プロジェクトの設定 > スクリプト プロパティ」に次の値を追加する
 

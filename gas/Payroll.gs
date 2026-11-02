@@ -263,12 +263,12 @@ function payDateProblem_(payDate, today) {
   return '';
 }
 
-// ---- 画面（Payroll.html）から呼ぶ ----
+// ---- 画面（PayrollDialog.html）から呼ぶ ----
 
 function showPayroll() {
   jobSheets_();
   ensurePayrollColumns_();
-  var html = HtmlService.createHtmlOutputFromFile('Payroll').setWidth(960).setHeight(780);
+  var html = HtmlService.createHtmlOutputFromFile('PayrollDialog').setWidth(960).setHeight(780);
   SpreadsheetApp.getUi().showModalDialog(html, '給与の振込データを作る（PayPay銀行 WEB総振）');
 }
 
