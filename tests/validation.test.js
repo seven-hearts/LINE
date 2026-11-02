@@ -44,7 +44,7 @@ const IMG = 'data:image/jpeg;base64,/9j/AAAA';
 function onb(overrides) {
   return Object.assign({
     nationality: '日本', idType: '運転免許証', idFront: IMG, facePhoto: IMG,
-    bankName: '三井住友銀行', branchName: '渋谷支店', accountType: '普通', accountNumber: '12345',
+    bankName: '三井住友銀行', bankCode: '０００９', branchName: '渋谷支店', branchCode: '234', accountType: '普通', accountNumber: '12345',
     accountHolder: 'やまだ はなこ', emergencyName: '山田太郎', emergencyRelation: '父',
     emergencyPhone: '0312345678', otherJob: 'なし', health: '', confidentialityConsent: true
   }, overrides);
@@ -186,4 +186,13 @@ test('書類提出：先に送った画像の目印（upload:ファイルID）�
   const { images } = validateOnboarding(onb({ idFront: 'upload:1AbCdEfGhIjKlMnOpQrStUv', facePhoto: 'upload:1ZyXwVuTsRqPoNmLkJiHgFe' }), TODAY);
   assert.strictEqual(images.idFront, 'upload:1AbCdEfGhIjKlMnOpQrStUv');
   assert.ok(errorsOf(() => validateOnboarding(onb({ facePhoto: 'upload:../../x' }), TODAY)).facePhoto);
+});
+
+test('書類提出：銀行コードは4桁、支店番号は3桁（全角数字も受け付ける）', () => {
+  const { record } = validateOnboarding(onb(), TODAY);
+  assert.strictEqual(record.bankCode, '0009');
+  assert.strictEqual(record.branchCode, '234');
+  const errs = errorsOf(() => validateOnboarding(onb({ bankCode: '9', branchCode: '1234' }), TODAY));
+  assert.match(errs.bankCode, /4桁/);
+  assert.match(errs.branchCode, /3桁/);
 });

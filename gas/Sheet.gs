@@ -119,7 +119,9 @@ COLUMNS[ONB_SHEET] = [
   ['idBack', '本人確認書類（裏）'],
   ['facePhoto', '顔写真'],
   ['bankName', '銀行名'],
+  ['bankCode', '銀行コード'],   // 4桁（給与の振込データに使う）
   ['branchName', '支店名'],
+  ['branchCode', '支店番号'],   // 3桁
   ['accountType', '口座種別'],
   ['accountNumber', '口座番号'],
   ['accountHolder', '口座名義（カナ）'],
@@ -227,6 +229,7 @@ COLUMNS[APPLY_SHEET] = [
   ['payUnit', '給与形態'],         // 時給・日給（応募時に「スタッフ向け給与」から入る）
   ['payRate', '単価'],             // 〃
   ['pay', '給与額'],               // 自動：時給は 単価 × 実働時間、日給は 単価
+  ['allowance', '手当'],           // 各種手当（担当者が入力。給与の振込額に含める）
   ['name', '氏名'],
   ['phone', '電話番号'],
   ['userId', 'LINEユーザーID'],
@@ -526,6 +529,26 @@ function deleteRecord_(sheetName, userId) {
 
 function setStatus_(userId, status) {
   writeRecord_(REG_SHEET, userId, { status: status, updatedAt: now_() });
+}
+
+/** 見出し afterLabel の列のすぐ右に、label の列を足す（すでにあれば何もしない）。足したら true */
+function insertColumnAfterLabel_(sh, afterLabel, label) {
+  var header = headerMap_(sh);
+  if (header[label] !== undefined || header[afterLabel] === undefined) return false;
+  var col = header[afterLabel] + 1;
+  sh.insertColumnAfter(col);
+  // 入れた列は左の列の入力規則を引き継ぐため外す
+  if (sh.getMaxRows() > 1) sh.getRange(2, col + 1, sh.getMaxRows() - 1, 1).clearDataValidations();
+  sh.getRange(1, col + 1, 1, 1).setValues([[label]]);
+  return true;
+}
+
+/** 「労務情報」に「銀行コード」「支店番号」の列を足す（給与の振込データ用。setup と書類の提出時に呼ぶ） */
+function migrateOnbColumns_(ss) {
+  var sh = ss.getSheetByName(ONB_SHEET);
+  if (!sh || !sh.getLastColumn()) return;
+  insertColumnAfterLabel_(sh, '銀行名', '銀行コード');
+  insertColumnAfterLabel_(sh, '支店名', '支店番号');
 }
 
 /** 「スタッフ登録」でグレーにするステータス（選考が終わった人・やめた人） */

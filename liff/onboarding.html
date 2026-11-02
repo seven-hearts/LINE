@@ -108,14 +108,27 @@
       <section class="card">
         <h2>給与の振込口座</h2>
         <p class="hint" style="margin-top:0">ご本人名義の口座をご登録ください。ゆうちょ銀行の場合は「振込用の店名・口座番号」を入力してください。</p>
-        <div class="field">
-          <label for="bankName">銀行名<span class="req">必須</span></label>
-          <input type="text" id="bankName" name="bankName" placeholder="例：三井住友銀行" maxlength="40" required>
+        <div class="row">
+          <div class="field">
+            <label for="bankName">銀行名<span class="req">必須</span></label>
+            <input type="text" id="bankName" name="bankName" placeholder="例：三井住友銀行" maxlength="40" required>
+          </div>
+          <div class="field" style="flex:0 0 7.5em">
+            <label for="bankCode">銀行コード<span class="req">必須</span></label>
+            <input type="text" id="bankCode" name="bankCode" inputmode="numeric" pattern="[0-9０-９]{4}" maxlength="4" placeholder="0009" required data-message="4桁の数字で入力してください">
+          </div>
         </div>
-        <div class="field">
-          <label for="branchName">支店名<span class="req">必須</span></label>
-          <input type="text" id="branchName" name="branchName" placeholder="例：渋谷支店" maxlength="40" required>
+        <div class="row">
+          <div class="field">
+            <label for="branchName">支店名<span class="req">必須</span></label>
+            <input type="text" id="branchName" name="branchName" placeholder="例：渋谷支店" maxlength="40" required>
+          </div>
+          <div class="field" style="flex:0 0 7.5em">
+            <label for="branchCode">支店番号<span class="req">必須</span></label>
+            <input type="text" id="branchCode" name="branchCode" inputmode="numeric" pattern="[0-9０-９]{3}" maxlength="3" placeholder="123" required data-message="3桁の数字で入力してください">
+          </div>
         </div>
+        <p class="hint" style="margin-top:-8px">銀行コード（4桁）と支店番号（3桁）は、通帳やキャッシュカード、銀行のアプリ・サイトで確認できます。例：三井住友銀行は 0009、PayPay銀行は 0033、ゆうちょ銀行は 9900（支店番号は振込用の店番）。</p>
         <div class="row">
           <div class="field">
             <label for="accountType">種別<span class="req">必須</span></label>

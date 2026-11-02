@@ -197,6 +197,7 @@ function apiOnboarding_(userId, data) {
   });
   if (Object.keys(missing).length) throw new ValidationError(missing);
 
+  migrateOnbColumns_(spreadsheet_()); // setup を実行し直す前でも保存できるように
   var existing = readRecord_(ONB_SHEET, userId);
   var now = now_();
   record.name = name;

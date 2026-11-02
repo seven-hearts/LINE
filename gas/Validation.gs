@@ -398,7 +398,13 @@ function validateOnboarding(input, today) {
   image('facePhoto');
 
   r.bankName = v.text('bankName', { max: 40 });
+  var bankCode = v.digits_('bankCode');
+  if (bankCode && !/^\d{4}$/.test(bankCode)) v.error('bankCode', '銀行コードは4桁の数字で入力してください');
+  r.bankCode = bankCode;
   r.branchName = v.text('branchName', { max: 40 });
+  var branchCode = v.digits_('branchCode');
+  if (branchCode && !/^\d{3}$/.test(branchCode)) v.error('branchCode', '支店番号は3桁の数字で入力してください');
+  r.branchCode = branchCode;
   r.accountType = v.oneOf('accountType', OPTIONS.accountTypes);
   var account = v.digits_('accountNumber');
   if (account && !/^\d{1,7}$/.test(account)) v.error('accountNumber', '口座番号は7桁以内の数字で入力してください');
