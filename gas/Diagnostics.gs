@@ -233,5 +233,28 @@ function checkSettings() {
   lines.push('・LINE Official Account Manager > 設定 > 応答設定 で「Webhook」がオンになっているか');
   lines.push('・コードを貼り付けたあとに「デプロイを管理 > 編集 > 新バージョン」でデプロイし直したか');
   lines.push('・Apps Script 左の「実行数」に doPost の記録とエラーがあるか');
-  console.log(lines.join('\n'));
+  // 長いと実行ログで途中が見えにくいので、1行ずつ出す
+  lines.forEach(function (l) { console.log(l); });
+}
+
+/**
+ * カレンダーだけの点検。Apps Script エディタで checkCalendars を選んで「実行」すると、
+ * 実行ログに、どのアカウントで動いているか・見えているカレンダー・「面接」「勤務スタッフ」が使えるかを表示します。
+ */
+function checkCalendars() {
+  var props = PropertiesService.getScriptProperties().getProperties();
+  console.log('コードの版：' + APP_VERSION + '（2026-11-06.6 より前なら、ファイルを貼り直してください）');
+  console.log('実行しているアカウント：' + (scriptUserText_() || '（わかりません）'));
+  console.log('スクリプト プロパティ CALENDAR_ID：' + (props.CALENDAR_ID ? '「' + props.CALENDAR_ID + '」' : '空（「面接」カレンダーを使います）'));
+  console.log('スクリプト プロパティ WORK_CALENDAR_ID：' + (props.WORK_CALENDAR_ID ? '「' + props.WORK_CALENDAR_ID + '」' : '空（「勤務スタッフ」カレンダーを使います）'));
+  console.log('このアカウントで見えるカレンダー：' + (calendarNames_() || '（取得できません。権限を許可してください）'));
+  [['面接', interviewCalendar_, props.CALENDAR_ID], ['勤務', workCalendar_, props.WORK_CALENDAR_ID]].forEach(function (c) {
+    if (String(c[2] || '').trim().toLowerCase() === 'off') return console.log('⚠️ ' + c[0] + '：off のため登録しません');
+    try {
+      var cal = c[1]();
+      console.log('✅ ' + c[0] + 'は Google カレンダー「' + cal.getName() + '」に登録します');
+    } catch (err) {
+      console.log('❌ ' + c[0] + '：' + err.message);
+    }
+  });
 }
