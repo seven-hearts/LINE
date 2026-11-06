@@ -1367,11 +1367,6 @@ function salesDashboard_(rows, nowYm) {
   };
 }
 
-/** 「2026/11」→「2026年11月」の表示用（見出しは短く「26/11」） */
-function shortYm_(ym) {
-  return ym.slice(2);
-}
-
 /**
  * ダッシュボードの表（2次元の配列）と書式の情報。
  * 1. 売上（税抜）：取引先 × 月、合計・構成比  2. 延べ人数  3. 請求の状況  4. 売上が空欄の行
@@ -1385,7 +1380,7 @@ function salesDashboardRows_(d, updatedAt) {
     rows.push(r);
     return rows.length - 1;
   }
-  var monthHeads = d.months.map(shortYm_);
+  var monthHeads = d.months.slice();
   function sum(a) { return a.reduce(function (s, v) { return s + v; }, 0); }
 
   titles.push(line(['取引先別 月次売上ダッシュボード（更新：' + updatedAt + '）']));

@@ -176,7 +176,7 @@ test('売上ダッシュボード：取引先ごと・月ごとの売上と延�
   const t = plain(ctx.salesDashboardRows_(ctx.salesDashboard_(rows, '2026/11'), '2026/11/06 06:00'));
   assert.strictEqual(t.width, 13 + 3);
   const head = t.rows[t.heads[0]];
-  assert.deepStrictEqual([head[0], head[1], head[13], head[14], head[15]], ['取引先', '25/12', '26/12', '合計', '構成比']);
+  assert.deepStrictEqual([head[0], head[1], head[13], head[14], head[15]], ['取引先', '2025/12', '2026/12', '合計', '構成比']);
   const b = t.rows.find((r) => r[0] === 'B社');
   assert.strictEqual(b[14], 230000);
   assert.ok(Math.abs(b[15] - 230000 / 381000) < 1e-9);
