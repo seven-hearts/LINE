@@ -126,11 +126,18 @@ function saveRegistration_(userId, input, source) {
   return { isNew: !existing, name: name };
 }
 
+/** 登録フォーム（最初のフォーム）を送信した直後に LINE で送るメッセージ */
+var REGISTERED_TEXT =
+  'ご入力ありがとうございます。スタッフ仮登録が完了いたしました。\n\n' +
+  '入力いただいた内容を確認し、選考を通過された方には\n' +
+  '面接日時のご案内をお送りします。\n\n' +
+  '登録内容に変更がある場合は「変更」と送信してください。\n\n' +
+  'ご案内までもうしばらくお待ちください。';
+
 function apiRegister_(userId, data) {
   var result = saveRegistration_(userId, data, 'フォーム');
   if (result.isNew) {
-    pushMessage_(userId, [textMessage_(result.name + ' さん\n\nスタッフ登録ありがとうございます！\n' +
-      '面接日時を調整のうえ、担当者からこのトークでご連絡します。\n\n登録内容の変更は「変更」と送信してください。')]);
+    pushMessage_(userId, [textMessage_(REGISTERED_TEXT)]);
   }
   return { ok: true, isNew: result.isNew };
 }
