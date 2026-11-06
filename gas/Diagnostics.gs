@@ -105,7 +105,7 @@ function checkSettings() {
   } else {
     try {
       var cal = interviewCalendar_();
-      ok('面接日時は Google カレンダー「' + cal.getName() + '」に登録します');
+      ok('面接は Google カレンダー「' + cal.getName() + '」に登録します');
     } catch (err) {
       ng('Google カレンダーを使えません：' + err.message + '。setup を実行してカレンダーの権限を許可するか、CALENDAR_ID を確認してください');
     }
@@ -115,7 +115,7 @@ function checkSettings() {
     warn('WORK_CALENDAR_ID が off のため、確定したスタッフの勤務を Google カレンダーに登録しません');
   } else {
     try {
-      ok('確定したスタッフの勤務は Google カレンダー「' + workCalendar_().getName() + '」に登録します');
+      ok('勤務は Google カレンダー「' + workCalendar_().getName() + '」に登録します');
     } catch (err) {
       ng('勤務スタッフの Google カレンダーを使えません：' + err.message);
     }

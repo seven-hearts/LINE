@@ -1273,7 +1273,7 @@ function workCalendar_() {
   var id = getConfig_().workCalendarId;
   var cal = id ? CalendarApp.getCalendarById(id) : calendarByName_(WORK_CALENDAR_NAME);
   if (!cal && id) throw new Error('カレンダー「' + id + '」が見つからないか、編集の権限がありません（スクリプト プロパティ WORK_CALENDAR_ID を確認してください）');
-  if (!cal) throw new Error('Google カレンダーに「' + WORK_CALENDAR_NAME + '」という名前のカレンダーがありません。setup を実行した人のアカウントで作るか、共有して「予定の変更」の権限を付けてください');
+  if (!cal) throw new Error('Google カレンダーに「' + WORK_CALENDAR_NAME + '」という名前のカレンダーがありません。setup を実行した人' + scriptUserText_() + 'のアカウントで作るか、共有して「予定の変更」の権限を付けてください。今見えるカレンダー：' + calendarNames_());
   return cal;
 }
 

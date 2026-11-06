@@ -718,8 +718,36 @@ var INTERVIEW_CALENDAR_NAME = '面接';
  */
 function calendarByName_(name) {
   var list = CalendarApp.getCalendarsByName(name) || [];
+  if (!list.length && CalendarApp.getAllCalendars) {
+    // 名前の前後の空白・全角半角の違いは同じとみなす（「面接 」「勤務 スタッフ」など）
+    var key = calendarNameKey_(name);
+    list = CalendarApp.getAllCalendars().filter(function (c) { return calendarNameKey_(c.getName()) === key; });
+  }
   var own = list.filter(function (c) { try { return c.isOwnedByMe(); } catch (e) { return false; } });
   return own[0] || list[0] || null;
+}
+
+function calendarNameKey_(name) {
+  return String(name || '').normalize('NFKC').replace(/\s+/g, '');
+}
+
+/** 「（xxx@gmail.com）」。わからなければ空 */
+function scriptUserText_() {
+  try {
+    var email = Session.getEffectiveUser().getEmail();
+    return email ? '（' + email + '）' : '';
+  } catch (err) {
+    return '';
+  }
+}
+
+/** setup を実行した人のカレンダー一覧の名前（見つからないときの案内用） */
+function calendarNames_() {
+  try {
+    return CalendarApp.getAllCalendars().map(function (c) { return '「' + c.getName() + '」'; }).join('、');
+  } catch (err) {
+    return '';
+  }
 }
 
 /** 面接を登録するカレンダー（CALENDAR_ID があればその ID、空なら「面接」という名前のカレンダー） */
@@ -727,7 +755,7 @@ function interviewCalendar_() {
   var id = getConfig_().calendarId;
   var cal = id ? CalendarApp.getCalendarById(id) : calendarByName_(INTERVIEW_CALENDAR_NAME);
   if (!cal && id) throw new Error('カレンダー「' + id + '」が見つからないか、編集の権限がありません（スクリプト プロパティ CALENDAR_ID を確認してください）');
-  if (!cal) throw new Error('Google カレンダーに「' + INTERVIEW_CALENDAR_NAME + '」という名前のカレンダーがありません。setup を実行した人のアカウントで作るか、共有して「予定の変更」の権限を付けてください');
+  if (!cal) throw new Error('Google カレンダーに「' + INTERVIEW_CALENDAR_NAME + '」という名前のカレンダーがありません。setup を実行した人' + scriptUserText_() + 'のアカウントで作るか、共有して「予定の変更」の権限を付けてください。今見えるカレンダー：' + calendarNames_());
   return cal;
 }
 
