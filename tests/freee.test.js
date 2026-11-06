@@ -144,3 +144,45 @@ test('freee に送る形（税抜・外税・御中）と、取引先の照合',
   assert.throws(() => ctx.findPartner_(partners, '株式会社ほか'), /見つかりません/);
   assert.match(ctx.freeeErrorText_(400, { errors: [{ messages: ['請求書番号は必須です'] }] }), /請求書番号は必須です/);
 });
+
+test('売上ダッシュボード：取引先ごと・月ごとの売上と延べ人数、請求の状況', () => {
+  const rows = [
+    row({ client: 'A社', salesMonth: '2026/10', sales: 100000, headcount: 3, invoice: '入金済' }),
+    row({ client: 'A社', salesMonth: '2026/11', sales: '50,000', headcount: 2, invoice: '' }),
+    row({ client: 'B社', salesMonth: '', date: '2026/11/20', sales: 200000, headcount: 5, invoice: '発行済' }),
+    row({ client: 'B社', salesMonth: '2026/12', sales: 30000, headcount: 1 }),         // 先の月（予定）
+    row({ client: '', salesMonth: '2026/11', sales: 1000, headcount: 1 }),            // 取引先なし
+    row({ client: 'A社', salesMonth: '2026/11', sales: '', headcount: 4 }),            // 売上が空欄
+    row({ client: 'C社', salesMonth: '2025/11', sales: 999999, headcount: 9 }),       // 12か月より前は含めない
+    row({ client: 'C社', salesMonth: '2027/06', sales: 999999, headcount: 9 })        // 7か月以上先も含めない
+  ];
+  const d = plain(ctx.salesDashboard_(rows, '2026/11'));
+  assert.strictEqual(d.months.length, 13); // 2025/12〜2026/12
+  assert.strictEqual(d.months[0], '2025/12');
+  assert.strictEqual(d.months[12], '2026/12');
+  assert.deepStrictEqual(d.clients.map((c) => [c.name, c.total, c.peopleTotal]), [
+    ['B社', 230000, 6], ['A社', 150000, 9], ['（取引先なし）', 1000, 1]
+  ]);
+  const i = (ym) => d.months.indexOf(ym);
+  assert.strictEqual(d.clients[1].sales[i('2026/10')], 100000);
+  assert.strictEqual(d.clients[1].sales[i('2026/11')], 50000);
+  assert.strictEqual(d.monthTotal[i('2026/11')], 251000);
+  assert.strictEqual(d.grand, 381000);
+  assert.strictEqual(d.missing[i('2026/11')], 1);
+  assert.strictEqual(d.invoice['入金済'][i('2026/10')], 100000);
+  assert.strictEqual(d.invoice['発行済'][i('2026/11')], 200000);
+  assert.strictEqual(d.invoice['未'][i('2026/11')], 51000);
+
+  const t = plain(ctx.salesDashboardRows_(ctx.salesDashboard_(rows, '2026/11'), '2026/11/06 06:00'));
+  assert.strictEqual(t.width, 13 + 3);
+  const head = t.rows[t.heads[0]];
+  assert.deepStrictEqual([head[0], head[1], head[13], head[14], head[15]], ['取引先', '25/12', '26/12', '合計', '構成比']);
+  const b = t.rows.find((r) => r[0] === 'B社');
+  assert.strictEqual(b[14], 230000);
+  assert.ok(Math.abs(b[15] - 230000 / 381000) < 1e-9);
+  assert.ok(t.rows.some((r) => /売上が空欄の行/.test(r[0])));
+  assert.ok(t.rows.every((r) => r.length === t.width));
+  // 前月比（10月 100,000 → 11月 251,000）
+  const mom = t.rows.find((r) => r[0] === '前月比');
+  assert.ok(Math.abs(mom[1 + i('2026/11')] - 1.51) < 1e-9);
+});

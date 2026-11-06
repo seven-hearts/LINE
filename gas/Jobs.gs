@@ -1310,3 +1310,124 @@ function workEventSpec_(app, slot, sheetUrl) {
   ].filter(Boolean).join('\n');
   return spec;
 }
+
+// ---- 売上ダッシュボード（取引先ごとの月次の売上） ----
+
+var SALES_DASHBOARD_SHEET = '売上ダッシュボード';
+var SALES_DASHBOARD_PAST_MONTHS = 12;  // 今月を含めて、さかのぼって表示する月数
+var SALES_DASHBOARD_FUTURE_MONTHS = 6; // 先の月（予定の案件）は、データがあればこの月数まで表示する
+var NO_CLIENT = '（取引先なし）';
+
+/**
+ * 「案件一覧」の行 → 取引先ごと・月ごとの売上（税抜）・延べ人数と、月ごとの請求の状況。
+ * 月は「売上計上月」（空なら日程の月）。売上が空欄の行は金額に含めず、月ごとの件数を missing に数える。
+ * nowYm は今月（「2026/11」）
+ */
+function salesDashboard_(rows, nowYm) {
+  var first = addMonths_(nowYm, -(SALES_DASHBOARD_PAST_MONTHS - 1));
+  var limit = addMonths_(nowYm, SALES_DASHBOARD_FUTURE_MONTHS);
+  var last = nowYm;
+  var recs = [];
+  rows.forEach(function (r) {
+    var ym = ymOf_(r.salesMonth) || ymOf_(parseYmd_(r.date));
+    if (!ym || ym < first || ym > limit) return;
+    if (ym > last) last = ym;
+    recs.push({ ym: ym, r: r });
+  });
+  var months = [];
+  for (var m = first; m <= last; m = addMonths_(m, 1)) months.push(m);
+  var idx = {};
+  months.forEach(function (ym, i) { idx[ym] = i; });
+  var zeros = function () { return months.map(function () { return 0; }); };
+
+  var clients = {};
+  var monthTotal = zeros(), monthPeople = zeros(), missing = zeros();
+  var invoice = {};
+  INVOICE_OPTIONS.forEach(function (o) { invoice[o] = zeros(); });
+  recs.forEach(function (x) {
+    var i = idx[x.ym], r = x.r;
+    var name = str_(r.client) || NO_CLIENT;
+    if (!clients[name]) clients[name] = { name: name, sales: zeros(), people: zeros(), total: 0, peopleTotal: 0 };
+    var c = clients[name];
+    var people = toNum_(r.headcount) || 0;
+    c.people[i] += people; c.peopleTotal += people; monthPeople[i] += people;
+    var sales = toNum_(r.sales);
+    if (sales === null) { missing[i]++; return; }
+    c.sales[i] += sales; c.total += sales; monthTotal[i] += sales;
+    var inv = INVOICE_OPTIONS.indexOf(str_(r.invoice)) >= 0 ? str_(r.invoice) : INVOICE_OPTIONS[0];
+    invoice[inv][i] += sales;
+  });
+  var list = Object.keys(clients).map(function (k) { return clients[k]; })
+    .sort(function (a, b) { return b.total - a.total || a.name.localeCompare(b.name, 'ja'); });
+  var grand = monthTotal.reduce(function (s, v) { return s + v; }, 0);
+  return {
+    months: months, clients: list, monthTotal: monthTotal, monthPeople: monthPeople, grand: grand,
+    peopleGrand: monthPeople.reduce(function (s, v) { return s + v; }, 0),
+    invoice: invoice, missing: missing, nowYm: nowYm
+  };
+}
+
+/** 「2026/11」→「2026年11月」の表示用（見出しは短く「26/11」） */
+function shortYm_(ym) {
+  return ym.slice(2);
+}
+
+/**
+ * ダッシュボードの表（2次元の配列）と書式の情報。
+ * 1. 売上（税抜）：取引先 × 月、合計・構成比  2. 延べ人数  3. 請求の状況  4. 売上が空欄の行
+ */
+function salesDashboardRows_(d, updatedAt) {
+  var W = d.months.length + 3;
+  var rows = [], titles = [], heads = [], totals = [], money = [], counts = [], pct = [];
+  function line(cells) {
+    var r = cells.slice(0, W);
+    while (r.length < W) r.push('');
+    rows.push(r);
+    return rows.length - 1;
+  }
+  var monthHeads = d.months.map(shortYm_);
+  function sum(a) { return a.reduce(function (s, v) { return s + v; }, 0); }
+
+  titles.push(line(['取引先別 月次売上ダッシュボード（更新：' + updatedAt + '）']));
+  line(['「案件一覧」の売上（税抜）を、売上計上月（空なら日程の月）ごとに集計しています。毎朝自動で更新します。すぐに更新するときは、メニュー「セブンハーツ > 売上ダッシュボードを更新」を選んでください。']);
+  line([]);
+
+  titles.push(line(['■ 売上（税抜）']));
+  heads.push(line(['取引先'].concat(monthHeads, ['合計', '構成比'])));
+  var salesFrom = rows.length;
+  d.clients.forEach(function (c) {
+    var r = line([c.name].concat(c.sales, [c.total, d.grand ? c.total / d.grand : 0]));
+    money.push([r, 2, d.months.length + 1]);
+    pct.push([r, W]);
+  });
+  var t = line(['合計'].concat(d.monthTotal, [d.grand, d.grand ? 1 : 0]));
+  totals.push(t); money.push([t, 2, d.months.length + 1]); pct.push([t, W]);
+  var chart = { headRow: salesFrom - 1, fromRow: salesFrom, toRow: t - 1, cols: d.months.length + 1 };
+  var prev = d.monthTotal.map(function (v, i) { return i ? d.monthTotal[i - 1] : null; });
+  var r2 = line(['前月比'].concat(d.monthTotal.map(function (v, i) { return prev[i] ? v / prev[i] - 1 : ''; }), ['', '']));
+  pct.push([r2, 2, d.months.length + 1]);
+  line([]);
+
+  titles.push(line(['■ 延べ人数（案件一覧の人数の合計）']));
+  heads.push(line(['取引先'].concat(monthHeads, ['合計', ''])));
+  d.clients.forEach(function (c) { counts.push(line([c.name].concat(c.people, [c.peopleTotal, '']))); });
+  var tp = line(['合計'].concat(d.monthPeople, [d.peopleGrand, '']));
+  totals.push(tp); counts.push(tp);
+  line([]);
+
+  titles.push(line(['■ 請求の状況（売上・税抜）']));
+  heads.push(line(['請求書'].concat(monthHeads, ['合計', ''])));
+  INVOICE_OPTIONS.forEach(function (o) {
+    var r = line([o].concat(d.invoice[o], [sum(d.invoice[o]), '']));
+    money.push([r, 2, d.months.length + 1]);
+  });
+  line([]);
+
+  if (sum(d.missing)) {
+    titles.push(line(['■ 売上が空欄の行（金額に含めていません。「案件一覧」で単価・人数・時間を確認してください）']));
+    heads.push(line(['', ].concat(monthHeads, ['合計', ''])));
+    counts.push(line(['行数'].concat(d.missing, [sum(d.missing), ''])));
+    line([]);
+  }
+  return { rows: rows, width: W, titles: titles, heads: heads, totals: totals, money: money, counts: counts, pct: pct, chart: chart };
+}

@@ -1332,3 +1332,67 @@ function syncWorkCalendar_(now) {
     }
   });
 }
+
+// ---- 売上ダッシュボード ----
+
+/** シート「売上ダッシュボード」を作り直す（毎朝のトリガーと、メニューから） */
+function updateSalesDashboard() {
+  var ss = spreadsheet_();
+  if (!ss.getSheetByName(JOB_SHEET)) throw new Error('シート「' + JOB_SHEET + '」がありません。setup を実行してください');
+  var now = new Date();
+  var nowYm = now.getFullYear() + '/' + pad2_(now.getMonth() + 1);
+  var d = salesDashboard_(readAll_(JOB_SHEET).map(function (x) { return x.rec; }), nowYm);
+  var t = salesDashboardRows_(d, now_().slice(0, 16));
+
+  var sh = ss.getSheetByName(SALES_DASHBOARD_SHEET) || ss.insertSheet(SALES_DASHBOARD_SHEET);
+  sh.getCharts().forEach(function (c) { sh.removeChart(c); });
+  sh.clear();
+  if (sh.getMaxColumns() < t.width) sh.insertColumnsAfter(sh.getMaxColumns(), t.width - sh.getMaxColumns());
+  applySheetFont_(sh);
+  sh.getRange(1, 1, t.rows.length, t.width).setValues(t.rows);
+  t.titles.forEach(function (r) { sh.getRange(r + 1, 1).setFontWeight('bold').setFontColor('#381e19'); });
+  sh.getRange(2, 1).setFontColor('#6f625b');
+  t.heads.forEach(function (r) {
+    sh.getRange(r + 1, 1, 1, t.width).setFontWeight('bold').setBackground('#f3e5f5').setHorizontalAlignment('center');
+  });
+  t.totals.forEach(function (r) { sh.getRange(r + 1, 1, 1, t.width).setFontWeight('bold').setBackground('#faf7f5'); });
+  t.money.forEach(function (m) { sh.getRange(m[0] + 1, m[1], 1, m[2]).setNumberFormat('¥#,##0'); });
+  t.counts.forEach(function (r) { sh.getRange(r + 1, 2, 1, t.width - 2).setNumberFormat('#,##0'); });
+  t.pct.forEach(function (p) { sh.getRange(p[0] + 1, p[1], 1, p[2] || 1).setNumberFormat('0.0%'); });
+  // 今月の列を目立たせる
+  var cur = d.months.indexOf(nowYm);
+  if (cur >= 0) {
+    t.heads.forEach(function (r) { sh.getRange(r + 1, cur + 2).setBackground('#e8d6c2'); });
+  }
+  sh.setFrozenRows(0);
+  sh.setFrozenColumns(1);
+  sh.setColumnWidth(1, 220);
+  sh.setColumnWidths(2, t.width - 1, 95);
+  sh.getRange(2, 1).setWrap(false);
+
+  // 取引先ごとに積み上げた、月ごとの売上の棒グラフ（表の下）
+  if (d.clients.length) {
+    var c = t.chart;
+    var chart = sh.newChart()
+      .setChartType(Charts.ChartType.COLUMN)
+      .addRange(sh.getRange(c.headRow + 1, 1, c.toRow - c.headRow + 1, c.cols))
+      .setTransposeRowsAndColumns(true)
+      .setNumHeaders(1)
+      .setOption('isStacked', true)
+      .setOption('title', '取引先別 月次売上（税抜）')
+      .setOption('legend', { position: 'right' })
+      .setOption('vAxis', { format: '¥#,##0' })
+      .setOption('width', Math.min(1400, 160 + d.months.length * 70))
+      .setOption('height', 420)
+      .setPosition(t.rows.length + 2, 1, 0, 0)
+      .build();
+    sh.insertChart(chart);
+  }
+  return d;
+}
+
+/** メニュー「売上ダッシュボードを更新」 */
+function updateSalesDashboardNow() {
+  updateSalesDashboard();
+  spreadsheet_().getSheetByName(SALES_DASHBOARD_SHEET).activate();
+}

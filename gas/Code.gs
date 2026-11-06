@@ -100,7 +100,7 @@ function doPost(e) {
  * コードの版。コードを変えるたびに更新する。
  * checkSettings がウェブアプリ（デプロイ済み）の版と比べて、デプロイし忘れを見つける。
  */
-var APP_VERSION = '2026-11-06.6';
+var APP_VERSION = '2026-11-06.7';
 
 function doGet() {
   return json_({ ok: true, service: 'sevenhearts-staff-registration', version: APP_VERSION });
@@ -183,6 +183,10 @@ function setup() {
   // マニュアルの閲覧数の集計を毎朝作り直す
   if (handlers.indexOf('updateManualSummary') < 0) {
     ScriptApp.newTrigger('updateManualSummary').timeBased().everyDays(1).atHour(MANUAL_SUMMARY_HOUR).create();
+  }
+  // 売上ダッシュボードを毎朝作り直す
+  if (handlers.indexOf('updateSalesDashboard') < 0) {
+    ScriptApp.newTrigger('updateSalesDashboard').timeBased().everyDays(1).atHour(MANUAL_SUMMARY_HOUR).create();
   }
 
   // カレンダーの権限をここで許可してもらう（許可がないと、1分ごとの自動処理でカレンダーに登録できない）

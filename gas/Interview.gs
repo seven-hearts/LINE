@@ -424,6 +424,7 @@ function onOpen() {
     .addItem('案件をLINEで配信', 'showJobSend')
     .addItem('確定した人に詳細連絡を送る', 'showDetailSend')
     .addItem('案件応募に手動で追加', 'showManualApply')
+    .addItem('売上ダッシュボードを更新', 'updateSalesDashboardNow')
     .addItem('freee に請求書を作る', 'showFreeeInvoice')
     .addItem('freee の取引先を読み込む', 'freeeLoadPartners')
     .addItem('給与の振込データを作る（PayPay銀行）', 'showPayroll')
