@@ -1,12 +1,4 @@
 /* スタッフ登録フォーム（新規登録と登録内容の変更。新規登録ではトークで答えたお名前が入る） */
-// 登録フォームを送信した後の完了画面（初めて登録したとき。お名前の下に表示）
-var DONE_TEXT =
-  'ご入力ありがとうございます。スタッフ仮登録が完了いたしました。\n\n' +
-  '入力いただいた内容を確認し、選考を通過された方には' +
-  '面接日時のご案内をお送りします。\n\n' +
-  '登録内容に変更がある場合は「変更」と送信してください。\n\n' +
-  'ご案内までもうしばらくお待ちください。';
-
 (function () {
   'use strict';
 
@@ -288,8 +280,7 @@ var DONE_TEXT =
     var pairErrors = interviewPairErrors();
     if (Object.keys(pairErrors).length) return App.showErrors(form, pairErrors);
     App.busy(submit, true);
-    var data = App.collect(form);
-    App.api('register', data)
+    App.api('register', App.collect(form))
       .then(function (res) {
         if (res.errors) return App.showErrors(form, res.errors);
         if (!res.ok) throw new Error(res.error);
@@ -297,9 +288,6 @@ var DONE_TEXT =
         if (isEdit) {
           App.$('#done-title').textContent = '登録内容を更新しました';
           App.$('#done-message').textContent = 'ご協力ありがとうございます。';
-        } else {
-          App.$('#done-title').textContent = [data.lastName, data.firstName].filter(Boolean).join(' ') + ' さん';
-          App.$('#done-message').textContent = DONE_TEXT;
         }
         App.show('screen-done');
       })

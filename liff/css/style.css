@@ -41,7 +41,6 @@ main { max-width: 640px; margin: 0 auto; padding: 16px 16px 48px; }
 
 .notice.notice-error { background: #fdecea; border-color: #f5c2bd; }
 .notice-error p { margin: 0; white-space: pre-line; }
-#done-message { white-space: pre-line; text-align: left; }
 .notice-error button.secondary { margin-top: 8px; }
 
 .notice {
