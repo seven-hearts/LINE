@@ -1252,3 +1252,61 @@ function confirmConflictMemo_(other) {
   return '同じ日（' + other.date + '）に「' + other.title + '」（' + appTimeText_(other) + '）で確定しているため、確定にできませんでした';
 }
 
+
+// ---- 「勤務スタッフ」カレンダー（確定したスタッフの勤務の予定） ----
+
+/** 確定したスタッフの勤務を登録する Google カレンダーの名前（WORK_CALENDAR_ID が空のとき） */
+var WORK_CALENDAR_NAME = '勤務スタッフ';
+/** 1分の自動処理で作る・消す予定の数の上限（多いときは次の1分に回す） */
+var WORK_CALENDAR_MAX_PER_RUN = 20;
+
+/** 勤務の予定に入れる内容（これが変わったら予定を作り直す） */
+function workEventKey_(app) {
+  var d = parseYmd_(app.date);
+  return [d ? ymd_(d) : '', normalizeTime_(app.start), normalizeTime_(app.end), str_(app.title), str_(app.name), str_(app.phone)].join('|');
+}
+
+/**
+ * 「勤務スタッフ」カレンダーの予定をどうするか：'create' / 'update' / 'delete' / ''（何もしない）
+ * - 状態が「確定」で欠勤でない → 予定がなければ作る（過ぎた日は作らない）。内容が変わっていれば作り直す
+ * - それ以外（見送り・辞退・応募に戻した・連絡欠勤・無断欠勤）→ 予定があれば消す
+ */
+function workCalendarAction_(app, now) {
+  var d = parseYmd_(app.date);
+  var active = app.status === APPLY_STATUS.CONFIRMED && ABSENT_STATUSES.indexOf(app.workStatus) < 0 && !!d && !!str_(app.name);
+  if (active) {
+    if (!str_(app.workEventId)) return d < startOfDay_(now) ? '' : 'create';
+    return workEventKey_(app) === str_(app.workEventKey) ? '' : 'update';
+  }
+  return str_(app.workEventId) ? 'delete' : '';
+}
+
+/**
+ * 予定の中身。時間がわかれば時間の予定（終了が開始より前なら翌日まで）、わからなければ終日の予定。
+ * slot は「案件一覧」の行（場所・住所・集合など。なければ null）
+ */
+function workEventSpec_(app, slot, sheetUrl) {
+  slot = slot || {};
+  var d = parseYmd_(app.date);
+  var s = minutesOf_(app.start), e = minutesOf_(app.end);
+  var spec = { title: str_(app.name) + '（' + str_(app.title) + '）', allDay: s === null || e === null };
+  if (spec.allDay) {
+    spec.start = d;
+  } else {
+    spec.start = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, s);
+    spec.end = new Date(d.getFullYear(), d.getMonth(), d.getDate() + (e <= s ? 1 : 0), 0, e);
+  }
+  spec.location = str_(slot.address) || str_(slot.place);
+  spec.description = [
+    '氏名：' + str_(app.name),
+    app.phone ? '電話番号：' + str_(app.phone) : '',
+    '案件：' + str_(app.title) + (slot.client ? '（' + str_(slot.client) + '）' : ''),
+    '日時：' + ymd_(d) + (spec.allDay ? '' : ' ' + appTimeText_(app)),
+    slot.place ? '場所：' + str_(slot.place) : '',
+    slot.meetingTime || slot.meetingPlace ? '集合：' + [str_(slot.meetingTime), str_(slot.meetingPlace)].filter(Boolean).join(' ') : '',
+    slot.contactName || slot.contactPhone ? '集合担当：' + joinContact_(slot.contactName, slot.contactPhone) : '',
+    '枠ID：' + str_(app.slotId),
+    sheetUrl ? '\nシート「案件応募」で状態を変えると、この予定も1分以内に変わります（見送り・辞退・欠勤にすると消えます）。\n' + sheetUrl : ''
+  ].filter(Boolean).join('\n');
+  return spec;
+}

@@ -709,12 +709,57 @@ function runAction_(rec, action, callUrl, method) {
   }
 }
 
-/** 面接を登録するカレンダー（CALENDAR_ID が空ならメインのカレンダー） */
+/** 面接を登録する Google カレンダーの名前（CALENDAR_ID が空のとき、この名前のカレンダーを使う） */
+var INTERVIEW_CALENDAR_NAME = '面接';
+
+/**
+ * 名前でカレンダーを探す（setup を実行した人のカレンダー一覧にあるもの）。
+ * 同じ名前が複数あれば、予定を作れる（自分のもの）を優先する。なければ null
+ */
+function calendarByName_(name) {
+  var list = CalendarApp.getCalendarsByName(name) || [];
+  var own = list.filter(function (c) { try { return c.isOwnedByMe(); } catch (e) { return false; } });
+  return own[0] || list[0] || null;
+}
+
+/** 面接を登録するカレンダー（CALENDAR_ID があればその ID、空なら「面接」という名前のカレンダー） */
 function interviewCalendar_() {
   var id = getConfig_().calendarId;
-  var cal = id ? CalendarApp.getCalendarById(id) : CalendarApp.getDefaultCalendar();
-  if (!cal) throw new Error('カレンダー「' + id + '」が見つからないか、編集の権限がありません（スクリプト プロパティ CALENDAR_ID を確認してください）');
+  var cal = id ? CalendarApp.getCalendarById(id) : calendarByName_(INTERVIEW_CALENDAR_NAME);
+  if (!cal && id) throw new Error('カレンダー「' + id + '」が見つからないか、編集の権限がありません（スクリプト プロパティ CALENDAR_ID を確認してください）');
+  if (!cal) throw new Error('Google カレンダーに「' + INTERVIEW_CALENDAR_NAME + '」という名前のカレンダーがありません。setup を実行した人のアカウントで作るか、共有して「予定の変更」の権限を付けてください');
   return cal;
+}
+
+/**
+ * setup から：以前メインのカレンダーに入れた、これからの面接の予定を「面接」カレンダーに移す。
+ * メインのカレンダーの予定を消し、予定ID・Meet URL を空にする（1分以内に「面接」カレンダーに作り直し、Meet も付け直す）。
+ * 移した件数を返す
+ */
+function moveInterviewEvents_() {
+  var cfg = getConfig_();
+  if (cfg.calendarId) return 0; // CALENDAR_ID を入れている（off を含む）ときは今までどおり
+  var target = interviewCalendar_();
+  var main = CalendarApp.getDefaultCalendar();
+  if (!main || main.getId() === target.getId()) return 0;
+  var now = new Date();
+  var moved = 0;
+  var sh = sheet_(REG_SHEET);
+  if (sh.getLastRow() < 2) return 0;
+  var header = headerMap_(sh);
+  sh.getRange(2, 1, sh.getLastRow() - 1, sh.getLastColumn()).getValues().forEach(function (values) {
+    var rec = rowToRecord_(REG_SHEET, header, values);
+    if (!rec.userId || !rec.calendarEventId) return;
+    var at = rec.calendarAt ? parseDateTime_(rec.calendarAt, now) : null;
+    if (!at || at <= now) return; // 済んだ面接は記録として残す
+    if (findEvent_(target, rec.calendarEventId)) return;
+    var old = findEvent_(main, rec.calendarEventId);
+    if (!old) return;
+    old.deleteEvent();
+    writeRecord_(REG_SHEET, rec.userId, { calendarEventId: '', calendarAt: '', meetUrl: '' });
+    moved++;
+  });
+  return moved;
 }
 
 function findEvent_(calendar, id) {

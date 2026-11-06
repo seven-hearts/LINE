@@ -229,7 +229,7 @@ test('1分ごとの自動処理で、カレンダーに登録・移動・削除�
     __db: db, __header: header, __cal: calendar, __errors: errors,
     // この確認は LINEコール（Google Meet は下の別の確認）
     PropertiesService: { getScriptProperties: () => ({ getProperties: () => Object.assign({ INTERVIEW_METHOD: 'line' }, props), getProperty: (k) => props[k] || null }) },
-    CalendarApp: { getDefaultCalendar: () => calendar, getCalendarById: () => null },
+    CalendarApp: { getDefaultCalendar: () => null, getCalendarById: () => null, getCalendarsByName: (n) => (n === '面接' ? [calendar] : []) },
     CacheService: { getScriptCache: () => ({ get: (k) => cacheStore[k] || null, put: (k, v) => { cacheStore[k] = v; } }) }
   });
   vm.runInContext(`
@@ -397,7 +397,7 @@ test('1分ごとの自動処理で、カレンダーの予定に Google Meet を
   Object.assign(c, {
     __db: db, __header: header, __errors: errors, __pushed: pushed, __admin: admin,
     PropertiesService: { getScriptProperties: () => ({ getProperties: () => ({}), getProperty: () => null }) },
-    CalendarApp: { getDefaultCalendar: () => calendar },
+    CalendarApp: { getDefaultCalendar: () => null, getCalendarsByName: (n) => (n === '面接' ? [calendar] : []) },
     CacheService: { getScriptCache: () => ({ get: (k) => cacheStore[k] || null, put: (k, v) => { cacheStore[k] = v; } }) },
     Utilities: { getUuid: () => 'uuid', formatDate: () => '' }
   });

@@ -110,6 +110,16 @@ function checkSettings() {
       ng('Google カレンダーを使えません：' + err.message + '。setup を実行してカレンダーの権限を許可するか、CALENDAR_ID を確認してください');
     }
   }
+  var workCalId = (props.WORK_CALENDAR_ID || '').trim();
+  if (workCalId.toLowerCase() === 'off') {
+    warn('WORK_CALENDAR_ID が off のため、確定したスタッフの勤務を Google カレンダーに登録しません');
+  } else {
+    try {
+      ok('確定したスタッフの勤務は Google カレンダー「' + workCalendar_().getName() + '」に登録します');
+    } catch (err) {
+      ng('勤務スタッフの Google カレンダーを使えません：' + err.message);
+    }
+  }
   // 面接の方法
   var method = (props.INTERVIEW_METHOD || '').trim().toLowerCase() === 'line' ? 'line' : 'meet';
   if (method === 'meet') {

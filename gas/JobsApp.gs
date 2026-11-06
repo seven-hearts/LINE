@@ -1148,6 +1148,12 @@ function runJobScheduler_(now) {
   var needed = ['勤務ステータス', '開始予定時間', '出発確認の送信日時', '担当者への通知日時', '終了確認の送信日時', '終了報告の日時'];
   if (needed.some(function (l) { return header[l] === undefined; })) return;
   syncApplyTimes_();
+  try {
+    syncWorkCalendar_(now);
+  } catch (err) {
+    console.error('work calendar failed', err && err.stack || err);
+    logError_('勤務スタッフのカレンダー', '', err);
+  }
   readAll_(APPLY_SHEET).forEach(function (x) {
     var app = x.rec;
     if (!app.userId) return;
@@ -1259,3 +1265,70 @@ function handleDepartureText_(ev, userId, text) {
   return answerDeparture_(ev, userId, '', m[1] === 'はい');
 }
 
+
+// ---- 「勤務スタッフ」カレンダー ----
+
+/** 確定したスタッフの勤務を登録するカレンダー（WORK_CALENDAR_ID があればその ID、空なら「勤務スタッフ」という名前のカレンダー） */
+function workCalendar_() {
+  var id = getConfig_().workCalendarId;
+  var cal = id ? CalendarApp.getCalendarById(id) : calendarByName_(WORK_CALENDAR_NAME);
+  if (!cal && id) throw new Error('カレンダー「' + id + '」が見つからないか、編集の権限がありません（スクリプト プロパティ WORK_CALENDAR_ID を確認してください）');
+  if (!cal) throw new Error('Google カレンダーに「' + WORK_CALENDAR_NAME + '」という名前のカレンダーがありません。setup を実行した人のアカウントで作るか、共有して「予定の変更」の権限を付けてください');
+  return cal;
+}
+
+/**
+ * 1分ごと（runJobScheduler_ から）：「案件応募」で確定した人の勤務を「勤務スタッフ」カレンダーに入れる。
+ * 確定 → 予定を作る、日程・時間・案件・氏名が変わる → 作り直す、見送り・辞退・欠勤 → 消す。
+ * うまくいかなかったときは1時間待ってからやり直す（同じエラーを1分ごとに記録し続けないため）
+ */
+function syncWorkCalendar_(now) {
+  var cfg = getConfig_();
+  if (cfg.workCalendarId.toLowerCase() === 'off') return;
+  var sh = sheet_(APPLY_SHEET);
+  var header = headerMap_(sh);
+  if (header['勤務カレンダー予定ID'] === undefined || header['勤務カレンダーに登録した内容'] === undefined) return; // setup 前
+  var cache = CacheService.getScriptCache();
+  if (cache.get('wcal:all')) return;
+  var todo = readAll_(APPLY_SHEET).map(function (x) {
+    return { row: x.row, app: x.rec, action: workCalendarAction_(x.rec, now) };
+  }).filter(function (t) {
+    return t.action && !cache.get('wcal:' + t.row + ':' + str_(t.app.slotId));
+  }).slice(0, WORK_CALENDAR_MAX_PER_RUN);
+  if (!todo.length) return;
+
+  var calendar;
+  try {
+    calendar = workCalendar_();
+  } catch (err) {
+    cache.put('wcal:all', '1', 3600); // カレンダーそのものが使えない（ない・権限・WORK_CALENDAR_ID の誤り）
+    throw new Error(err.message + '（1時間後にやり直します）');
+  }
+  var slots = {};
+  readAll_(JOB_SHEET).forEach(function (x) { if (x.rec.slotId) slots[x.rec.slotId] = x.rec; });
+  var sheetUrl = spreadsheet_().getUrl() + '#gid=' + sh.getSheetId();
+
+  todo.forEach(function (t) {
+    try {
+      // 作り直すときも、前の予定を消してから作る（終日 ⇔ 時間の予定の切り替えもあるため）
+      if (str_(t.app.workEventId)) {
+        var old = findEvent_(calendar, t.app.workEventId);
+        if (old) old.deleteEvent();
+      }
+      if (t.action === 'delete') {
+        updateCells_(APPLY_SHEET, t.row, { workEventId: '', workEventKey: '' });
+        return;
+      }
+      var spec = workEventSpec_(t.app, slots[t.app.slotId], sheetUrl);
+      var opts = { description: spec.description, location: spec.location };
+      var ev = spec.allDay
+        ? calendar.createAllDayEvent(spec.title, spec.start, opts)
+        : calendar.createEvent(spec.title, spec.start, spec.end, opts);
+      updateCells_(APPLY_SHEET, t.row, { workEventId: ev.getId(), workEventKey: workEventKey_(t.app) });
+    } catch (err) {
+      console.error('work calendar sync failed', t.action, t.app.name, err && err.stack || err);
+      logError_('勤務スタッフのカレンダー：' + t.action + ' ' + str_(t.app.name) + ' ' + str_(t.app.date) + '（1時間後にやり直します）', t.app.userId, err);
+      cache.put('wcal:' + t.row + ':' + str_(t.app.slotId), '1', 3600);
+    }
+  });
+}

@@ -1193,8 +1193,106 @@ test('「案件応募」の列を新しい順に並べ直す（値も一緒に�
   };
   const moved = c.reorderColumns_(sheet, c.APPLY_SHEET);
   assert.ok(moved > 0);
-  const want = plain(c.COLUMNS[c.APPLY_SHEET].map((x) => x[1]));
+  const want = plain(c.COLUMNS[c.APPLY_SHEET].map((x) => x[1])).filter((l) => old.includes(l));
   assert.deepStrictEqual(grid[0], [...want, 'メモ（手入力）']);
   grid[0].forEach((l, i) => assert.strictEqual(grid[1][i], 'v:' + l));
   assert.strictEqual(c.reorderColumns_(sheet, c.APPLY_SHEET), 0); // 2回目は何もしない
+});
+
+test('勤務スタッフのカレンダー：作る・作り直す・消す', () => {
+  const now = new Date(2026, 10, 6, 12, 0);
+  const base = { status: '確定', workStatus: '', name: '山田 花子', phone: '090-1111-2222', title: '展示会運営', date: '2026/11/10', start: '08:30', end: '17:30', slotId: 'S1' };
+  const act = (o) => ctx.workCalendarAction_(Object.assign({}, base, o), now);
+  assert.strictEqual(act({}), 'create');
+  assert.strictEqual(act({ date: '2026/11/05' }), '');           // 過ぎた日は新しく作らない
+  assert.strictEqual(act({ date: '2026/11/06' }), 'create');     // 今日は作る
+  assert.strictEqual(act({ status: '応募' }), '');
+  const key = ctx.workEventKey_(base);
+  assert.strictEqual(key, '2026/11/10|08:30|17:30|展示会運営|山田 花子|090-1111-2222');
+  assert.strictEqual(act({ workEventId: 'E1', workEventKey: key }), '');
+  assert.strictEqual(act({ workEventId: 'E1', workEventKey: key, start: '9:00' }), 'update');
+  const pastKey = ctx.workEventKey_(Object.assign({}, base, { date: '2026/11/05' }));
+  assert.strictEqual(act({ workEventId: 'E1', workEventKey: pastKey, date: '2026/11/05' }), '');  // 過ぎても、作った予定は残す
+  for (const o of [{ status: '見送り' }, { status: '辞退' }, { status: '応募' }, { workStatus: '連絡欠勤' }, { workStatus: '無断欠勤' }]) {
+    assert.strictEqual(act(Object.assign({ workEventId: 'E1', workEventKey: key }, o)), 'delete', JSON.stringify(o));
+  }
+  assert.strictEqual(act({ workStatus: '出勤', workEventId: 'E1', workEventKey: key }), '');
+});
+
+test('勤務スタッフのカレンダー：予定の中身（日をまたぐ・時間がなければ終日）', () => {
+  const slot = { client: '株式会社テスト', place: 'インテックス大阪', address: '大阪市住之江区南港北1-5-102', meetingTime: '08:15', meetingPlace: '1号館前', contactName: '前田', contactPhone: '090-0000-0000' };
+  const spec = ctx.workEventSpec_({ name: '山田 花子', phone: '090-1111-2222', title: '展示会運営', date: '2026/11/10', start: '08:30', end: '17:30', slotId: 'S1' }, slot, 'https://x');
+  assert.strictEqual(spec.title, '山田 花子（展示会運営）');
+  assert.strictEqual(spec.allDay, false);
+  assert.strictEqual(spec.start.getTime(), new Date(2026, 10, 10, 8, 30).getTime());
+  assert.strictEqual(spec.end.getTime(), new Date(2026, 10, 10, 17, 30).getTime());
+  assert.strictEqual(spec.location, '大阪市住之江区南港北1-5-102');
+  assert.match(spec.description, /電話番号：090-1111-2222/);
+  assert.match(spec.description, /案件：展示会運営（株式会社テスト）/);
+  assert.match(spec.description, /集合：08:15 1号館前/);
+  assert.match(spec.description, /集合担当：前田 090-0000-0000/);
+  const night = ctx.workEventSpec_({ name: 'A', title: '夜間', date: '2026/11/10', start: '22:00', end: '05:00' }, null, '');
+  assert.strictEqual(night.end.getTime(), new Date(2026, 10, 11, 5, 0).getTime());
+  assert.strictEqual(night.location, '');
+  const allDay = ctx.workEventSpec_({ name: 'A', title: '時間未定', date: '2026/11/10', start: '', end: '' }, null, '');
+  assert.strictEqual(allDay.allDay, true);
+  assert.strictEqual(allDay.start.getTime(), new Date(2026, 10, 10).getTime());
+});
+
+test('勤務スタッフのカレンダー：1分ごとの処理で「勤務スタッフ」カレンダーに入れる', () => {
+  const events = {};
+  let n = 0;
+  const calendar = {
+    createEvent: (title, s, e, o) => { const id = 'E' + (++n); events[id] = { title, s, e, o, deleteEvent: () => { delete events[id]; } }; return { getId: () => id }; },
+    createAllDayEvent: (title, d, o) => { const id = 'E' + (++n); events[id] = { title, d, o, allDay: true, deleteEvent: () => { delete events[id]; } }; return { getId: () => id }; },
+    getEventById: (id) => events[id] || null
+  };
+  const rows = [
+    { status: '確定', name: '山田 花子', phone: '090', title: '展示会運営', date: '2099/01/10', start: '08:30', end: '17:30', slotId: 'S1' },
+    { status: '見送り', name: '佐藤 太郎', title: '展示会運営', date: '2099/01/10', start: '08:30', end: '17:30', slotId: 'S1' }
+  ];
+  const errors = [];
+  const c = vm.createContext({
+    PropertiesService: { getScriptProperties: () => ({ getProperties: () => ({}) }) },
+    CacheService: { getScriptCache: () => ({ get: () => null, put: () => {} }) },
+    CalendarApp: { getCalendarsByName: (name) => (name === '勤務スタッフ' ? [calendar] : []) }
+  });
+  for (const f of ['Options.gs', 'Validation.gs', 'Line.gs', 'Sheet.gs', 'Interview.gs', 'Code.gs', 'Jobs.gs', 'JobsApp.gs']) {
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'gas', f), 'utf8'), c, { filename: f });
+  }
+  c.__rows = rows;
+  c.__errors = errors;
+  vm.runInContext(`
+    sheet_ = function () { return { getSheetId: function () { return 7; } }; };
+    headerMap_ = function () { var m = {}; COLUMNS[APPLY_SHEET].forEach(function (x, i) { m[x[1]] = i; }); return m; };
+    spreadsheet_ = function () { return { getUrl: function () { return 'https://sheet'; } }; };
+    readAll_ = function (name) {
+      if (name === JOB_SHEET) return [{ rec: { slotId: 'S1', place: '会場' }, row: 2 }];
+      return __rows.map(function (r, i) { return { rec: Object.assign({}, r), row: i + 2 }; });
+    };
+    updateCells_ = function (name, row, f) { Object.assign(__rows[row - 2], f); };
+    logError_ = function (k, id, err) { __errors.push(k + ' ' + err.message); };
+  `, c);
+  const now = new Date(2026, 10, 6);
+  c.syncWorkCalendar_(now);
+  assert.deepStrictEqual(Object.keys(events), ['E1']);
+  assert.strictEqual(events.E1.title, '山田 花子（展示会運営）');
+  assert.strictEqual(events.E1.o.location, '会場');
+  assert.strictEqual(rows[0].workEventId, 'E1');
+  assert.strictEqual(rows[1].workEventId, undefined);
+  c.syncWorkCalendar_(now); // 変わっていなければ何もしない
+  assert.deepStrictEqual(Object.keys(events), ['E1']);
+  rows[0].end = '18:00'; // 時間を変えた → 作り直す
+  c.syncWorkCalendar_(now);
+  assert.deepStrictEqual(Object.keys(events), ['E2']);
+  assert.strictEqual(events.E2.e.getHours(), 18);
+  rows[0].workStatus = '連絡欠勤'; // 欠勤 → 消す
+  c.syncWorkCalendar_(now);
+  assert.deepStrictEqual(Object.keys(events), []);
+  assert.strictEqual(rows[0].workEventId, '');
+  assert.deepStrictEqual(errors, []);
+  // 「勤務スタッフ」カレンダーがない → エラーを記録して止まる
+  rows[0].workStatus = '';
+  c.CalendarApp.getCalendarsByName = () => [];
+  assert.throws(() => c.syncWorkCalendar_(now), /「勤務スタッフ」という名前のカレンダーがありません/);
 });

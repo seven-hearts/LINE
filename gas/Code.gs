@@ -37,8 +37,10 @@ function getConfig_() {
     callUrl: (p.CALL_URL || '').trim(),
     // 面接の方法：meet（Google Meet。初期値）/ line（LINEコール）
     interviewMethod: (p.INTERVIEW_METHOD || '').trim().toLowerCase() === 'line' ? 'line' : 'meet',
-    // 面接を登録する Google カレンダー（空ならスクリプトを実行する人のメインのカレンダー、off なら登録しない）
+    // 面接を登録する Google カレンダー（空なら「面接」という名前のカレンダー、off なら登録しない）
     calendarId: (p.CALENDAR_ID || '').trim(),
+    // 確定したスタッフの勤務を登録する Google カレンダー（空なら「勤務スタッフ」という名前のカレンダー、off なら登録しない）
+    workCalendarId: (p.WORK_CALENDAR_ID || '').trim(),
     interviewMinutes: /^\d+$/.test((p.INTERVIEW_MINUTES || '').trim()) ? +p.INTERVIEW_MINUTES.trim() : 30,
     anthropicApiKey: (p.ANTHROPIC_API_KEY || '').trim(),
     claudeModel: (p.CLAUDE_MODEL || '').trim() || DEFAULT_CLAUDE_MODEL,
@@ -98,7 +100,7 @@ function doPost(e) {
  * コードの版。コードを変えるたびに更新する。
  * checkSettings がウェブアプリ（デプロイ済み）の版と比べて、デプロイし忘れを見つける。
  */
-var APP_VERSION = '2026-11-06.3';
+var APP_VERSION = '2026-11-06.4';
 
 function doGet() {
   return json_({ ok: true, service: 'sevenhearts-staff-registration', version: APP_VERSION });
@@ -184,7 +186,19 @@ function setup() {
   }
 
   // カレンダーの権限をここで許可してもらう（許可がないと、1分ごとの自動処理でカレンダーに登録できない）
-  if (getConfig_().calendarId.toLowerCase() !== 'off') interviewCalendar_();
+  // カレンダーがなくても setup は最後まで行う（checkSettings で確認できる）
+  if (getConfig_().calendarId.toLowerCase() !== 'off') {
+    try {
+      interviewCalendar_();
+      var moved = moveInterviewEvents_();
+      if (moved) console.log('これからの面接の予定 ' + moved + '件を「' + INTERVIEW_CALENDAR_NAME + '」カレンダーに移します（1分以内に作り直します）');
+    } catch (err) {
+      console.warn(err.message);
+    }
+  }
+  if (getConfig_().workCalendarId.toLowerCase() !== 'off') {
+    try { workCalendar_(); } catch (err) { console.warn(err.message); }
+  }
 
   console.log('セットアップ完了');
   console.log('Webhook URL: <ウェブアプリのURL>?token=' + props.getProperty('WEBHOOK_TOKEN'));

@@ -247,6 +247,8 @@ COLUMNS[APPLY_SHEET] = [
   ['endCheckSentAt', '終了確認の送信日時'],
   ['endReport', '終了報告（返信内容）'],
   ['endReportAt', '終了報告の日時'],
+  ['workEventId', '勤務カレンダー予定ID'],          // 「勤務スタッフ」カレンダーの予定（自動）
+  ['workEventKey', '勤務カレンダーに登録した内容'], // 〃（日程・時間・案件・氏名が変わったら予定を作り直す）
   ['adminMemo', '管理メモ'],
   ['appliedAt', '応募日時'],
   ['slotId', '枠ID'],
