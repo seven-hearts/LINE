@@ -45,11 +45,12 @@ function setupJobSheets_(ss) {
     SpreadsheetApp.newDataValidation().requireValueInList(statusValues, true).setAllowInvalid(false).build());
   var ah = headerMap_(apply);
   var acol = function (label) { return apply.getRange(2, ah[label] + 1, apply.getMaxRows() - 1, 1); };
-  ['交通費（往復）', '単価', '給与額', '手当', '所得税（丙欄）'].forEach(function (l) { acol(l).setNumberFormat('¥#,##0'); });
+  ['交通費（往復）', '単価', '給与額', '手当', '所得税（丙欄）', '振込総額'].forEach(function (l) { acol(l).setNumberFormat('¥#,##0'); });
   ['休憩時間', '実働時間'].forEach(function (l) { acol(l).setNumberFormat('0.##'); });
   acol('給与形態').setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(UNITS, true).build());
   applySheetFont_(apply);
   fillApplyPayTerms_();
+  recalcAllPay_();
 }
 
 /**
@@ -769,7 +770,7 @@ function onApplyEdit_(e) {
   recountSlots_(); // 「案件一覧」の応募人数・確定人数
 }
 
-/** 勤務時間・休憩・給与形態・単価を編集した行の、実働時間と給与額を計算し直す */
+/** 勤務時間・休憩・給与形態・単価・手当・交通費を編集した行の、実働時間・給与額・所得税・振込総額を計算し直す */
 function updateWorkPay_(sh, header, range) {
   if (header['給与額'] === undefined || header['実働時間'] === undefined) return;
   var from = range.getColumn(), to = range.getLastColumn();
@@ -777,11 +778,63 @@ function updateWorkPay_(sh, header, range) {
   if (!touched) return;
   var firstRow = Math.max(range.getRow(), 2), lastRow = range.getLastRow();
   if (lastRow < firstRow) return;
-  var values = sh.getRange(firstRow, 1, lastRow - firstRow + 1, sh.getLastColumn()).getValues();
-  values.forEach(function (v, k) {
-    var r = workPay_(rowToRecord_(APPLY_SHEET, header, v));
-    sh.getRange(firstRow + k, header['実働時間'] + 1).setValue(r.actualHours);
-    sh.getRange(firstRow + k, header['給与額'] + 1).setValue(r.pay);
+  writePayRows_(sh, header, firstRow, sh.getRange(firstRow, 1, lastRow - firstRow + 1, sh.getLastColumn()).getValues());
+}
+
+/** 黄色：時間外（8時間超）・深夜（22時〜5時）の割増がある行の、勤務時間のセル */
+var PREMIUM_COLOR = '#fff59d';
+var PREMIUM_CELL_LABELS = ['勤務開始時間', '勤務終了時間', '実働時間'];
+
+/**
+ * firstRow から続く行（values はその行の値）の、実働時間・給与額・所得税・振込総額を書き、割増のある行の勤務時間を黄色にする。
+ * 給与振込日が入っている行（振込データを作った行）は、変えない
+ */
+function writePayRows_(sh, header, firstRow, values) {
+  if (!values.length) return;
+  var out = { '実働時間': [], '給与額': [], '所得税（丙欄）': [], '振込総額': [] };
+  var colors = [];
+  values.forEach(function (v) {
+    var app = rowToRecord_(APPLY_SHEET, header, v);
+    if (str_(app.paidOn)) {
+      Object.keys(out).forEach(function (l) { out[l].push([header[l] === undefined ? '' : v[header[l]]]); });
+      colors.push(null);
+      return;
+    }
+    var f = rowPayFields_(app);
+    out['実働時間'].push([f.actualHours]);
+    out['給与額'].push([f.pay]);
+    out['所得税（丙欄）'].push([f.incomeTax]);
+    out['振込総額'].push([f.netPay]);
+    colors.push(f.premium ? PREMIUM_COLOR : '');
+  });
+  Object.keys(out).forEach(function (l) {
+    if (header[l] !== undefined) sh.getRange(firstRow, header[l] + 1, values.length, 1).setValues(out[l]);
+  });
+  PREMIUM_CELL_LABELS.forEach(function (l) {
+    if (header[l] === undefined) return;
+    var range = sh.getRange(firstRow, header[l] + 1, values.length, 1);
+    // 振込済みの行（null）は今の色のまま
+    var now = colors.some(function (c) { return c === null; }) ? range.getBackgrounds() : null;
+    range.setBackgrounds(colors.map(function (c, k) { return [c === null ? now[k][0] : (c || null)]; }));
+  });
+}
+
+/** setup から：「案件応募」のすべての行（振込済みを除く）の給与を、今の計算のしかたで計算し直す */
+function recalcAllPay_() {
+  var sh = sheet_(APPLY_SHEET);
+  if (sh.getLastRow() < 2) return;
+  var header = headerMap_(sh);
+  if (header['給与額'] === undefined || header['振込総額'] === undefined) return;
+  writePayRows_(sh, header, 2, sh.getRange(2, 1, sh.getLastRow() - 1, sh.getLastColumn()).getValues());
+}
+
+/** 指定した行（シートの行番号）だけ計算し直す（交通費の返信が来たときなど） */
+function recalcPayRows_(rows) {
+  var sh = sheet_(APPLY_SHEET);
+  var header = headerMap_(sh);
+  if (header['給与額'] === undefined) return;
+  rows.forEach(function (row) {
+    writePayRows_(sh, header, row, sh.getRange(row, 1, 1, sh.getLastColumn()).getValues());
   });
 }
 
@@ -1060,6 +1113,14 @@ function handleTravelReply_(ev, userId, text) {
       if (departure) f.workStatus = WORK_STATUS.DEPART_TIME_OK;
       updateCells_(APPLY_SHEET, a._row, f);
     });
+    // 交通費が入ったら振込総額を計算し直す
+    if (fare !== null) {
+      try {
+        recalcPayRows_(target.map(function (a) { return a._row; }));
+      } catch (err) {
+        logError_('振込総額の計算（交通費の返信）', userId, err); // 返信の受け付けは止めない
+      }
+    }
     var done = fare !== null && departure;
     return travelReplyText_(target, fare, departure, done && groups[1] ? groups[1] : null);
   });

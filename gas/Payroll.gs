@@ -58,6 +58,23 @@ function heiTax_(amount) {
   return HEI_TABLE[Math.floor((amount - HEI_TABLE_FROM) / HEI_TABLE_STEP)];
 }
 
+/**
+ * 「案件応募」の1行の自動の列：実働時間・給与額・所得税（丙欄）・振込総額と、割増があるか。
+ * 所得税はその行の（給与額＋手当）に対して丙欄で求める。振込総額 = 給与額 ＋ 手当 ＋ 交通費 − 所得税。
+ * 給与額がわからないとき・手当や交通費が数字でないときは、所得税・振込総額は空
+ */
+function rowPayFields_(app) {
+  var w = workPay_(app);
+  var f = { actualHours: w.actualHours, pay: w.pay, incomeTax: '', netPay: '', premium: hasPremium_(w) };
+  var allowance = str_(app.allowance) === '' ? 0 : toNum_(app.allowance);
+  var fare = str_(app.fare) === '' ? 0 : toNum_(app.fare);
+  if (w.pay === '' || allowance === null || fare === null) return f;
+  var taxable = Math.round(w.pay) + Math.round(allowance);
+  f.incomeTax = heiTax_(taxable);
+  f.netPay = taxable + Math.round(fare) - f.incomeTax;
+  return f;
+}
+
 // ---- 全銀フォーマットの文字（半角カナ） ----
 
 var HALF_KANA_ = {
@@ -360,7 +377,9 @@ function payrollCreate(req) {
       p.days.forEach(function (d) {
         d.rows.forEach(function (a, i) {
           // 同じ日に2件あるときは、その日の所得税を1件目に入れる
-          updateCells_(APPLY_SHEET, a._row, { incomeTax: i === 0 ? d.tax : 0, paidOn: payDate });
+          var tax = i === 0 ? d.tax : 0;
+          var net = Math.round(toNum_(a.pay)) + Math.round(toNum_(a.allowance) || 0) + Math.round(toNum_(a.fare) || 0) - tax;
+          updateCells_(APPLY_SHEET, a._row, { incomeTax: tax, netPay: net, paidOn: payDate });
         });
       });
     });

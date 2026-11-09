@@ -151,3 +151,56 @@ test('振込日：過ぎた日・土日祝は不可', () => {
   assert.match(ctx.payDateProblem_('2026/11/23', today), /土日祝/);  // 勤労感謝の日
   assert.match(ctx.payDateProblem_('', today), /選んで/);
 });
+
+test('案件応募の1行：所得税（丙欄）と振込総額', () => {
+  const f = (o) => plain(ctx.rowPayFields_(Object.assign({
+    actualStart: '09:00', actualEnd: '18:00', actualBreak: 1, payUnit: '時給', payRate: 1500, workStatus: '出勤', allowance: '', fare: ''
+  }, o)));
+  // 1500×8 = 12,000 → 丙欄 79円
+  assert.deepStrictEqual(f({ fare: 1060 }), { actualHours: 8, pay: 12000, incomeTax: 79, netPay: 12000 - 79 + 1060, premium: false });
+  // 手当は課税（12,500 → 98円）、交通費は非課税
+  assert.deepStrictEqual(f({ allowance: 500, fare: '1,060' }), { actualHours: 8, pay: 12000, incomeTax: 98, netPay: 12500 - 98 + 1060, premium: false });
+  // 9時間：1500×9 + 1500×0.25×1 = 13,875 → 丙欄 144円、割増あり
+  assert.deepStrictEqual(f({ actualBreak: '' }), { actualHours: 9, pay: 13875, incomeTax: 144, netPay: 13875 - 144, premium: true });
+  // 9,800円未満は0円
+  assert.strictEqual(f({ payRate: 1100 }).incomeTax, 0);
+  // 給与額がない・交通費が数字でない → 空
+  assert.deepStrictEqual(f({ actualEnd: '' }), { actualHours: '', pay: '', incomeTax: '', netPay: '', premium: false });
+  assert.strictEqual(f({ fare: '電車' }).netPay, '');
+});
+
+test('案件応募のシート：給与を書き、割増のある行の勤務時間を黄色に（振込済みの行は変えない）', () => {
+  const c = vm.createContext({});
+  for (const f of ['Options.gs', 'Validation.gs', 'Line.gs', 'Sheet.gs', 'Interview.gs', 'Shift.gs', 'Jobs.gs', 'JobsApp.gs', 'Payroll.gs']) {
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'gas', f), 'utf8'), c, { filename: f });
+  }
+  const labels = c.COLUMNS[c.APPLY_SHEET].map((x) => x[1]);
+  const header = {};
+  labels.forEach((l, i) => { header[l] = i; });
+  const rec = (o) => labels.map((l) => {
+    const key = c.COLUMNS[c.APPLY_SHEET].find((x) => x[1] === l)[0];
+    return o[key] === undefined ? '' : o[key];
+  });
+  const base = { actualStart: '09:00', actualEnd: '18:00', actualBreak: 1, payUnit: '時給', payRate: 1200, fare: 500 };
+  const values = [
+    rec(base),                                                           // 8時間：割増なし
+    rec(Object.assign({}, base, { actualEnd: '23:00' })),                // 実働13時間・深夜1時間：黄色
+    rec(Object.assign({}, base, { actualEnd: '23:00', paidOn: '2026/11/25', pay: 9600, netPay: 10000 })) // 振込済み：変えない
+  ];
+  const written = {}, bg = {};
+  const sheet = {
+    getRange: (r, col, n) => ({
+      setValues: (v) => { written[labels[col - 1]] = plain(v.map((x) => x[0])); },
+      getBackgrounds: () => Array.from({ length: n }, () => ['#ffffff']),
+      setBackgrounds: (v) => { bg[labels[col - 1]] = plain(v.map((x) => x[0])); }
+    })
+  };
+  c.writePayRows_(sheet, header, 2, values);
+  // 2行目：9:00〜23:00（休憩1時間で実働13時間）、時間外5時間、深夜1時間 → 1200×(13 + 0.25×5 + 0.25×1) = 17,400 → 丙欄 292円
+  assert.deepStrictEqual(written['給与額'], [9600, 17400, 9600]);
+  assert.deepStrictEqual(written['所得税（丙欄）'], [0, 292, '']);
+  assert.deepStrictEqual(written['振込総額'], [10100, 17400 - 292 + 500, 10000]);
+  assert.deepStrictEqual(bg['勤務開始時間'], [null, '#fff59d', '#ffffff']);
+  assert.deepStrictEqual(bg['勤務終了時間'], [null, '#fff59d', '#ffffff']);
+  assert.deepStrictEqual(bg['実働時間'], [null, '#fff59d', '#ffffff']);
+});

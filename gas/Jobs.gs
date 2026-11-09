@@ -17,9 +17,9 @@ var APPLY_STATUS = {
 };
 
 /** 「案件応募」で、実働時間・給与額の計算に使う列（ここを編集すると計算し直す） */
-var PAY_INPUT_LABELS = ['勤務ステータス', '勤務開始時間', '勤務終了時間', '休憩時間', '給与形態', '単価'];
+var PAY_INPUT_LABELS = ['勤務ステータス', '勤務開始時間', '勤務終了時間', '休憩時間', '給与形態', '単価', '手当', '交通費（往復）'];
 /** 実際の勤務・給与の列（「終了予定時間」の右に並べる） */
-var APPLY_WORK_LABELS = ['勤務開始時間', '勤務終了時間', '休憩時間', '実働時間', '給与形態', '単価', '給与額', '手当', '所得税（丙欄）', '給与振込日'];
+var APPLY_WORK_LABELS = ['勤務開始時間', '勤務終了時間', '休憩時間', '実働時間', '給与形態', '単価', '給与額', '手当', '所得税（丙欄）', '振込総額', '給与振込日'];
 
 /** 「案件応募」の勤務ステータス（状態の隣の列）。確定した人の当日までの進み具合 */
 var WORK_STATUS = {
@@ -334,21 +334,56 @@ function breakHours_(v) {
   return n === null ? null : (n > 12 ? round2_(n / 60) : n);
 }
 
+/** 時間外：1日の実働がこれを超えた分は割増（時給の25%増し） */
+var OVERTIME_AFTER_HOURS = 8;
+/** 深夜：22時〜翌5時に働いた分は割増（時給の25%増し）。時間外と重なる分は合わせて50%増し */
+var NIGHT_START_MINUTES = 22 * 60;
+var NIGHT_END_MINUTES = 5 * 60;
+var PREMIUM_RATE = 0.25;
+
+/** 勤務（分の区間 [s, e)。日をまたぐなら e は 1440 を超える）のうち、深夜（22時〜5時）に入る分数 */
+function nightMinutes_(s, e) {
+  var total = 0;
+  for (var day = -1; day <= 2; day++) {
+    var from = day * 1440 + NIGHT_START_MINUTES, to = (day + 1) * 1440 + NIGHT_END_MINUTES;
+    total += Math.max(0, Math.min(e, to) - Math.max(s, from));
+  }
+  return total;
+}
+
 /**
- * 「案件応募」の1行 → 実働時間と給与額（わからなければ ''）。
- * 実働時間 = 勤務終了 − 勤務開始 − 休憩（日をまたぐ勤務も）。給与額は時給なら 単価 × 実働時間（1円未満四捨五入）、日給なら 単価。
- * 欠勤の人は0円。
+ * 「案件応募」の1行 → 実働時間と給与額（わからなければ ''）、時間外・深夜の時間。
+ * 実働時間 = 勤務終了 − 勤務開始 − 休憩（日をまたぐ勤務も）。
+ * 時給：単価 × 実働時間 に、8時間を超えた分（時間外）と22時〜5時の分（深夜）をそれぞれ25%増しで足す（1円未満四捨五入）。
+ *   休憩は時間外・深夜の時間帯の外でとったものとして、時間外は勤務の最後の時間とみなす。
+ * 日給：単価（割増はなし）。欠勤の人は0円。
  */
 function workPay_(app) {
-  var span = spanHours_(app.actualStart, app.actualEnd);
+  var s = minutesOf_(app.actualStart), e = minutesOf_(app.actualEnd);
   var brk = breakHours_(app.actualBreak);
-  var hours = span !== null && brk !== null ? round2_(Math.max(0, span - brk)) : '';
+  var r = { actualHours: '', pay: '', overtimeHours: 0, nightHours: 0 };
+  var workMin = null;
+  if (s !== null && e !== null && brk !== null) {
+    if (e <= s) e += 1440;
+    workMin = Math.max(0, e - s - Math.round(brk * 60));
+    r.actualHours = round2_(workMin / 60);
+    var otMin = Math.max(0, workMin - OVERTIME_AFTER_HOURS * 60);
+    r.overtimeHours = round2_(otMin / 60);
+    r.nightHours = round2_(Math.min(nightMinutes_(s, e), workMin) / 60);
+  }
   var rate = toNum_(app.payRate);
-  var pay = '';
-  if (ABSENT_STATUSES.indexOf(app.workStatus) >= 0) pay = 0;
-  else if (rate !== null && app.payUnit === '時給' && hours !== '') pay = Math.round(rate * hours);
-  else if (rate !== null && app.payUnit === '日給') pay = rate;
-  return { actualHours: hours, pay: pay };
+  if (ABSENT_STATUSES.indexOf(app.workStatus) >= 0) r.pay = 0;
+  else if (rate !== null && app.payUnit === '時給' && workMin !== null) {
+    var ot = Math.max(0, workMin - OVERTIME_AFTER_HOURS * 60);
+    var night = Math.min(nightMinutes_(s, e), workMin);
+    r.pay = Math.round(rate * (workMin + PREMIUM_RATE * ot + PREMIUM_RATE * night) / 60);
+  } else if (rate !== null && app.payUnit === '日給') r.pay = rate;
+  return r;
+}
+
+/** 時間外・深夜の割増がある行（勤務時間のセルを黄色にする） */
+function hasPremium_(r) {
+  return r.overtimeHours > 0 || r.nightHours > 0;
 }
 
 function unitOf_(payBasis) {
