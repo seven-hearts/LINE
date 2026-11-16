@@ -160,3 +160,33 @@ test('リマインドを送る：送った回数を記録し、返事があっ�
   assert.strictEqual(db.U2.remindCount, 5);
   assert.strictEqual(c.sendChatReminders_(new Date(2026, 9, 20, 15, 0), false), 0);
 });
+
+test('トークのキーワード：登録済みの人は「応募」では登録の変更フォームを送らない', () => {
+  const c = vm.createContext({});
+  for (const f of ['Options.gs', 'Validation.gs', 'Line.gs', 'Sheet.gs', 'Chat.gs', 'Webhook.gs']) {
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'gas', f), 'utf8'), c, { filename: f });
+  }
+  const sent = [];
+  c.__sent = sent;
+  vm.runInContext(`
+    __rec = null;
+    loadChat_ = function () { return null; };
+    handleDepartureText_ = function () { return false; };
+    handleEndReport_ = function () { return false; };
+    handleTravelReply_ = function () { return false; };
+    readRecord_ = function () { return __rec; };
+    registerButton_ = function () { return { type: 'register' }; };
+    replyMessage_ = function (t, m) { __sent.push(m[0].type); };
+    startChat_ = function () { __sent.push('startChat'); };
+  `, c);
+  const say = (text) => { sent.length = 0; c.onText_({ replyToken: 'r' }, 'U1', text); return sent.slice(); };
+  // 登録済み
+  vm.runInContext("__rec = { userId: 'U1', status: '稼働可' };", c);
+  assert.deepStrictEqual(say('応募'), []);
+  assert.deepStrictEqual(say('11/20の案件に応募したいです'), []);
+  assert.deepStrictEqual(say('変更'), ['register']);
+  assert.deepStrictEqual(say('登録内容を変えたい'), ['register']);
+  // 未登録の人は「応募」でも登録を始める
+  vm.runInContext('__rec = null;', c);
+  assert.deepStrictEqual(say('応募'), ['startChat']);
+});

@@ -99,7 +99,9 @@ function onText_(ev, userId, text) {
     replyMessage_(ev.replyToken, [manualButton_(isStaffMenuTarget_(rec))]);
     return;
   }
-  if (/登録|応募|変更/.test(text)) {
+  // 登録済みの人：「登録」「変更」で登録内容の変更フォーム（「応募」には反応しない。案件への応募のやりとりで使うため）
+  // 未登録の人：「登録」「応募」「変更」で登録を始める
+  if (rec ? /登録|変更/.test(text) : /登録|応募|変更/.test(text)) {
     if (rec) replyMessage_(ev.replyToken, [registerButton_('登録内容の確認・変更はこちらから行えます')]);
     else startChat_(ev.replyToken, userId, '');
   }
