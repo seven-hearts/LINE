@@ -753,7 +753,23 @@ function onApplyEdit_(e) {
   rows.forEach(function (values, k) {
     if (blocked[firstRow + k]) return;
     var app = rowToRecord_(APPLY_SHEET, header, values);
-    if (!app.userId || app.notifiedAt) return;
+    if (!app.userId) return;
+    // 辞退：確定の連絡を送ったあとでも、辞退の連絡は1回だけ送る（「辞退の通知日時」の列がない＝setup 前は送らない）
+    if (app.status === APPLY_STATUS.CANCELLED) {
+      if (app.cancelNotifiedAt || header['辞退の通知日時'] === undefined) return;
+      try {
+        if (pushMessage_(app.userId, [textMessage_(applyCancelledText_(app))])) {
+          updateCells_(APPLY_SHEET, firstRow + k, { cancelNotifiedAt: now_() });
+        } else {
+          updateCells_(APPLY_SHEET, firstRow + k, { adminMemo: appendMemo_(app.adminMemo, '辞退の連絡を送れませんでした：' + lastLineError_) });
+        }
+      } catch (err) {
+        console.error('onApplyEdit cancel failed', app.userId, err && err.stack || err);
+        logError_('案件応募：辞退', app.userId, err);
+      }
+      return;
+    }
+    if (app.notifiedAt) return;
     if (app.status !== APPLY_STATUS.CONFIRMED && app.status !== APPLY_STATUS.DECLINED) return;
     try {
       var text = app.status === APPLY_STATUS.CONFIRMED ? applyConfirmedText_(app) : applyDeclinedText_(app);

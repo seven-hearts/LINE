@@ -1306,3 +1306,31 @@ test('勤務スタッフのカレンダー：1分ごとの処理で「勤務ス�
   c.CalendarApp.getCalendarsByName = () => [];
   assert.throws(() => c.syncWorkCalendar_(now), /「勤務スタッフ」という名前のカレンダーがありません/);
 });
+
+test('「案件応募」で辞退にすると、辞退を承った連絡を1回だけ送る（確定の連絡のあとでも）', () => {
+  const rows = [
+    { userId: 'U1', name: '山田 花子', status: '確定', date: '2026/11/21', title: 'パン祭り', start: '09:00', end: '17:00', notifiedAt: 'x' },
+    { userId: 'U2', name: '佐藤 太郎', status: '応募', date: '2026/11/21', title: 'パン祭り', start: '09:00', end: '17:00' }
+  ];
+  const { c, pushes } = applyFlowCtx(rows);
+  const header = plain(c.COLUMNS[c.APPLY_SHEET].map((x) => x[1]));
+  const sheet = {
+    getLastColumn: () => header.length,
+    getRange: (r, col, nr) => ({ getValues: () => rows.slice(r - 2, r - 2 + nr).map((rec) => c.COLUMNS[c.APPLY_SHEET].map((x) => rec[x[0]] === undefined ? '' : rec[x[0]])) })
+  };
+  vm.runInContext("headerMap_ = function () { var m = {}; COLUMNS[APPLY_SHEET].forEach(function (x, i) { m[x[1]] = i; }); return m; }; recountSlots_ = function () {};", c);
+  const ev = (row) => ({ range: { getSheet: () => sheet, getColumn: () => 3, getLastColumn: () => 3, getRow: () => row, getLastRow: () => row }, source: { toast: () => {} } });
+  rows[0].status = '辞退';
+  c.onApplyEdit_(ev(2));
+  assert.strictEqual(pushes.length, 1);
+  assert.strictEqual(pushes[0][0], 'U1');
+  assert.strictEqual(pushes[0][1][0].text,
+    '山田 花子 さん\n\n「パン祭り」（2026/11/21 9:00〜17:00）へのご応募は、辞退として承りました。\n\nご連絡ありがとうございました。またのご応募をお待ちしています。');
+  assert.ok(rows[0].cancelNotifiedAt);
+  c.onApplyEdit_(ev(2)); // もう一度編集しても送らない
+  assert.strictEqual(pushes.length, 1);
+  rows[1].status = '辞退'; // 応募のまま辞退にした人にも送る
+  c.onApplyEdit_(ev(3));
+  assert.strictEqual(pushes.length, 2);
+  assert.strictEqual(pushes[1][0], 'U2');
+});

@@ -13,7 +13,7 @@ var APPLY_STATUS = {
   APPLIED: '応募',     // スタッフが応募ボタンを押した
   CONFIRMED: '確定',   // 担当者が設定 → 確定の連絡を自動送信
   DECLINED: '見送り',  // 担当者が設定 → お断りの連絡を自動送信
-  CANCELLED: '辞退'
+  CANCELLED: '辞退'   // 担当者が設定 → 辞退を承った連絡を自動送信
 };
 
 /** 「案件応募」で、実働時間・給与額の計算に使う列（ここを編集すると計算し直す） */
@@ -701,6 +701,11 @@ function applyConfirmedText_(app) {
     '■ ' + app.title + '\n📅 ' + app.date + ' ' + appTimeText_(app) + '\n\n' +
     '集合場所・持ち物などの詳細は、後日このトークでお送りします。\n' +
     'ご都合が悪くなった場合は、すぐにこのトークでお知らせください。';
+}
+
+function applyCancelledText_(app) {
+  return app.name + ' さん\n\n「' + app.title + '」（' + app.date + ' ' + appTimeText_(app) + '）へのご応募は、辞退として承りました。\n\n' +
+    'ご連絡ありがとうございました。またのご応募をお待ちしています。';
 }
 
 function applyDeclinedText_(app) {
