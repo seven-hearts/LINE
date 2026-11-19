@@ -1411,3 +1411,21 @@ test('詳細連絡は日程ごと：集合時間は「案件一覧」のその�
   // 9/21 の応募だけ「詳細送付済」
   assert.deepStrictEqual(rows.map((x) => x.workStatus || ''), ['', '詳細送付済']);
 });
+
+test('詳細連絡の PDF：本文の最後にリンクを入れ、「案件一覧」には「ファイルID ファイル名」で保存する', () => {
+  const pdfs = [{ id: 'abc123', name: '会場マップ.pdf' }, { id: 'def456', name: '当日の流れ 2026.pdf' }];
+  const saved = ctx.formatPdfList_(pdfs);
+  assert.strictEqual(saved, 'abc123 会場マップ.pdf\ndef456 当日の流れ 2026.pdf');
+  assert.deepStrictEqual(plain(ctx.parsePdfList_(saved)), pdfs);
+  assert.deepStrictEqual(plain(ctx.parsePdfList_('')), []);
+  assert.deepStrictEqual(plain(ctx.parsePdfList_('xyz')), [{ id: 'xyz', name: '資料.pdf' }]);
+  const f = Object.assign(plain(ctx.detailDefaults_(Object.assign({}, lohas[0], { detailPdfs: saved }))), {});
+  assert.deepStrictEqual(f.pdfs, pdfs);
+  const text = ctx.detailText_(f, [lohas[0]]);
+  assert.match(text, /■資料（PDF）\n会場マップ\.pdf\nhttps:\/\/drive\.google\.com\/file\/d\/abc123\/view\n\n当日の流れ 2026\.pdf\nhttps:\/\/drive\.google\.com\/file\/d\/def456\/view$/);
+  // PDF は本文に入るので、送るメッセージの数（LINE の上限5通）は増えない
+  const msgs = ctx.detailMessages_(Object.assign({}, f, { images: ['i1', 'i2', 'i3'] }), [lohas[0]]);
+  assert.strictEqual(msgs.length, 5);
+  // PDF がなければ見出しも出さない
+  assert.doesNotMatch(ctx.detailText_(Object.assign({}, f, { pdfs: [] }), [lohas[0]]), /資料（PDF）/);
+});

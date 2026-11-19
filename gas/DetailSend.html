@@ -31,6 +31,9 @@
   .hint { color: var(--muted); font-size: 11px; }
   input[type=tel] { width: 100%; font: inherit; padding: 5px 6px; border: 1px solid var(--line); border-radius: 4px; }
   .images { display: flex; gap: 8px; flex-wrap: wrap; margin: 2px 0 6px; }
+  .pdfs { margin: 2px 0 6px; }
+  .pdf { display: inline-flex; gap: 6px; align-items: center; padding: 3px 8px; margin: 0 6px 4px 0; border: 1px solid #ddd; border-radius: 4px; font-size: 12px; }
+  .pdf button { border: none; background: none; cursor: pointer; color: #c62828; font-size: 14px; padding: 0 2px; }
   .thumb { position: relative; width: 96px; height: 96px; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: #f3f3f3; }
   .thumb img { width: 100%; height: 100%; object-fit: cover; }
   .thumb button { position: absolute; top: 2px; right: 2px; padding: 0 6px; font-size: 12px; line-height: 18px; border-radius: 9px; background: rgba(0,0,0,.6); color: #fff; border: none; }
@@ -63,6 +66,10 @@
         <div id="images" class="images"></div>
         <label class="pick" id="pickLabel"><input type="file" id="pick" accept="image/jpeg,image/png" multiple hidden>＋ 画像を選ぶ</label>
         <span id="upStatus" class="hint"></span>
+        <label class="l">PDF（案内資料など。3つまで。LINE では PDF をそのまま送れないため、本文の最後に開くためのリンクを入れます）</label>
+        <div id="pdfs" class="pdfs"></div>
+        <label class="pick" id="pdfLabel"><input type="file" id="pickPdf" accept="application/pdf" multiple hidden>＋ PDF を選ぶ</label>
+        <span id="pdfStatus" class="hint"></span>
       </div>
       <div>
         <h2>送る人</h2>
@@ -85,13 +92,54 @@ function $(id) { return document.getElementById(id); }
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
 function showMsg(text, kind) { var m = $('msg'); m.textContent = text; m.className = 'msg ' + (kind || 'err'); }
 var MAX_IMAGES = 3;
+var MAX_PDFS = 3;
 var images = []; // { id, url }（url は画面に表示する画像）
+var pdfs = [];   // { id, name }
 function fields() {
   var f = {};
   Array.prototype.forEach.call(document.querySelectorAll('[data-f]'), function (el) { f[el.dataset.f] = el.value; });
   f.images = images.map(function (x) { return x.id; });
+  f.pdfs = pdfs.map(function (x) { return { id: x.id, name: x.name }; });
   return f;
 }
+
+function renderPdfs() {
+  $('pdfs').innerHTML = pdfs.map(function (x, i) {
+    return '<div class="pdf">📄 ' + esc(x.name) + ' <button data-del-pdf="' + i + '" title="外す">×</button></div>';
+  }).join('');
+  $('pdfLabel').className = 'pick' + (pdfs.length >= MAX_PDFS ? ' off' : '');
+}
+
+function readBase64(file) {
+  return new Promise(function (resolve, reject) {
+    var reader = new FileReader();
+    reader.onerror = function () { reject(new Error('ファイルを読み込めませんでした')); };
+    reader.onload = function () { resolve(String(reader.result).split(',')[1]); };
+    reader.readAsDataURL(file);
+  });
+}
+
+$('pickPdf').onchange = function () {
+  var files = Array.prototype.slice.call(this.files, 0, MAX_PDFS - pdfs.length);
+  this.value = '';
+  if (!files.length) return;
+  $('send').disabled = true;
+  var next = function () {
+    var file = files.shift();
+    if (!file) { $('pdfStatus').textContent = ''; preview(); return; }
+    if (file.size > 10 * 1024 * 1024) { showMsg(file.name + ' は大きすぎます（10MBまで）'); next(); return; }
+    $('pdfStatus').textContent = 'PDF を保存しています…';
+    readBase64(file).then(function (data) {
+      google.script.run.withSuccessHandler(function (r) {
+        pdfs.push({ id: r.id, name: r.name });
+        renderPdfs();
+        next();
+      }).withFailureHandler(function (e) { $('pdfStatus').textContent = ''; showMsg(e.message); preview(); })
+        .uploadDetailPdf({ name: file.name, mimeType: 'application/pdf', data: data });
+    }).catch(function (e) { $('pdfStatus').textContent = ''; showMsg(e.message); preview(); });
+  };
+  next();
+};
 
 function renderImages() {
   $('images').innerHTML = images.map(function (x, i) {
@@ -168,6 +216,8 @@ function pick(i) {
   Array.prototype.forEach.call(document.querySelectorAll('[data-f]'), function (el) { el.value = current.fields[el.dataset.f] || ''; });
   images = (current.fields.images || []).map(function (id) { return { id: id, url: 'https://lh3.googleusercontent.com/d/' + encodeURIComponent(id) }; });
   renderImages();
+  pdfs = (current.fields.pdfs || []).slice();
+  renderPdfs();
   $('staff').innerHTML = current.staff.map(function (s) {
     var state = s.fare !== '' && s.departure ? '<span class="got">返信済み：交通費 ' + esc(s.fare) + '円・出発 ' + esc(s.departure) + '</span>'
       : s.sent ? '<span class="sent">送信済み（返信待ち）</span>' : '';
@@ -196,6 +246,13 @@ function preview() {
 $('pv').onclick = preview;
 document.addEventListener('change', function (e) { if (e.target.name === 'staff') preview(); });
 document.addEventListener('click', function (e) {
+  var p = e.target.dataset && e.target.dataset.delPdf;
+  if (p !== undefined) {
+    pdfs.splice(+p, 1);
+    renderPdfs();
+    preview();
+    return;
+  }
   var i = e.target.dataset && e.target.dataset.delImg;
   if (i === undefined) return;
   images.splice(+i, 1);

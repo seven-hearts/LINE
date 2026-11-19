@@ -772,7 +772,8 @@ function detailDefaults_(row) {
     pay: pay && !/交通費/.test(pay) ? pay + '＋交通費' : pay,
     meal: meal !== null ? (meal > 0 ? meal + '円支給' : '') : str_(row.meal),
     belongings: d.belongings,
-    images: str_(row.detailImages).split(',').map(str_).filter(Boolean)
+    images: str_(row.detailImages).split(',').map(str_).filter(Boolean),
+    pdfs: parsePdfList_(row.detailPdfs)
   };
 }
 
@@ -808,6 +809,9 @@ function detailText_(f, slots) {
   section('ギャランティ', f.pay);
   section('昼食', f.meal);
   section('持ち物', f.belongings);
+  section('資料（PDF）', (f.pdfs || []).slice(0, DETAIL_MAX_PDFS).map(function (p) {
+    return str_(p.name) + '\n' + driveFileUrl_(p.id);
+  }).join('\n\n'));
   return parts.join('\n\n');
 }
 
@@ -828,6 +832,29 @@ function joinContact_(name, phone) {
 
 /** 詳細連絡に添付できる画像の数（本文・画像・返信のお願いで、LINE の1回の上限5通に収める） */
 var DETAIL_MAX_IMAGES = 3;
+/**
+ * 詳細連絡に付けられる PDF の数。LINE では PDF をそのまま送れないため、ドライブに保存して本文にリンクを入れる
+ * （「リンクを知っている全員」が見られる設定。Google アカウントがなくても開ける）
+ */
+var DETAIL_MAX_PDFS = 3;
+
+/** 「案件一覧」の「詳細連絡のPDF」（1行に「ファイルID ファイル名」）→ [{ id, name }] */
+function parsePdfList_(v) {
+  return str_(v).split(/\r?\n/).map(str_).filter(Boolean).map(function (line) {
+    var i = line.indexOf(' ');
+    return i < 0 ? { id: line, name: '資料.pdf' } : { id: line.slice(0, i), name: line.slice(i + 1).trim() || '資料.pdf' };
+  });
+}
+
+/** [{ id, name }] → 「案件一覧」に保存する形 */
+function formatPdfList_(pdfs) {
+  return (pdfs || []).map(function (p) { return str_(p.id) + ' ' + str_(p.name).replace(/\s+/g, ' '); }).join('\n');
+}
+
+/** ドライブのファイルを開く URL（PDF はブラウザの Google ドライブの画面で開く） */
+function driveFileUrl_(id) {
+  return 'https://drive.google.com/file/d/' + encodeURIComponent(id) + '/view';
+}
 
 /** Google ドライブの画像を LINE で表示できる URL（「リンクを知っている全員」が見られる設定が必要） */
 function driveImageUrl_(id) {

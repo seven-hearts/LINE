@@ -1055,13 +1055,15 @@ function detailSend(req) {
   if (!targets.length) throw new Error('送る人を選んでください');
   var f = req.fields;
   if ((f.images || []).length > DETAIL_MAX_IMAGES) throw new Error('画像は' + DETAIL_MAX_IMAGES + '枚までです');
+  if ((f.pdfs || []).length > DETAIL_MAX_PDFS) throw new Error('PDF は' + DETAIL_MAX_PDFS + 'つまでです');
 
   // 集合場所などは「案件一覧」のその日程の行にも保存しておく（次に送るときの初期値になる）
   readAll_(JOB_SHEET).forEach(function (x) {
     if (detailGroupKey_(x.rec) !== c.caseId) return;
     var changes = {};
     var saved = { meetingPlace: str_(f.meetingPlace), meetingTime: str_(f.meetingTime), meetingNote: str_(f.meetingNote),
-      contactName: str_(f.contactName), contactPhone: str_(f.contactPhone), detailImages: (f.images || []).join(',') };
+      contactName: str_(f.contactName), contactPhone: str_(f.contactPhone), detailImages: (f.images || []).join(','),
+      detailPdfs: formatPdfList_(f.pdfs) };
     Object.keys(saved).forEach(function (k) {
       if (saved[k] !== str_(x.rec[k])) changes[k] = saved[k];
     });
@@ -1118,6 +1120,22 @@ function uploadDetailImage(img) {
     throw new Error('画像を「リンクを知っている全員」に共有できませんでした。Google Workspace の管理者がリンクでの共有を禁止している可能性があります（' + err.message + '）');
   }
   return { id: file.getId(), url: driveImageUrl_(file.getId()) };
+}
+
+/** 画面で選んだ PDF をドライブに保存し、リンクを知っている全員が見られるようにする（詳細連絡の本文にリンクを入れる） */
+function uploadDetailPdf(pdf) {
+  if (str_(pdf && pdf.mimeType) !== 'application/pdf') throw new Error('PDF ファイルを選んでください');
+  var bytes = Utilities.base64Decode(String(pdf.data || ''));
+  if (bytes.length > 10 * 1024 * 1024) throw new Error('PDF が大きすぎます（10MBまで）');
+  var name = str_(pdf.name) || '資料.pdf';
+  var file = detailImageFolder_().createFile(Utilities.newBlob(bytes, 'application/pdf', name));
+  try {
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  } catch (err) {
+    file.setTrashed(true);
+    throw new Error('PDF を「リンクを知っている全員」に共有できませんでした。Google Workspace の管理者がリンクでの共有を禁止している可能性があります（' + err.message + '）');
+  }
+  return { id: file.getId(), name: name, url: driveFileUrl_(file.getId()) };
 }
 
 // ---- 交通費・出発時間の返信（Webhook の onText_ から） ----
