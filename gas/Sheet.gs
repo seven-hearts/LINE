@@ -162,11 +162,12 @@ COLUMNS[SHIFT_SHEET] = [
 ];
 for (var shiftDay_ = 1; shiftDay_ <= 31; shiftDay_++) COLUMNS[SHIFT_SHEET].push(['d' + shiftDay_, shiftDay_ + '日']);
 
-// 「案件一覧」の列。前半21列はこれまで使っていた案件表と同じ並び。
+// 「案件一覧」の列。既存のシートは setup（reorderColumns_）でこの順に並べ直す。
 COLUMNS[JOB_SHEET] = [
   ['client', '取引先名'],
   ['title', 'タイトル'],
   ['place', '場所'],
+  ['address', '住所・アクセス'],
   ['work', '仕事内容'],
   ['role', 'ポジション'], // D / AD / ST
   ['date', '日程'],
@@ -177,6 +178,7 @@ COLUMNS[JOB_SHEET] = [
   ['workHours', '実働時間'],
   ['dress', '服装'],
   ['belongings', '持ち物'],
+  ['notes', 'その他備考'],   // 集合以外の注意事項・時間保証など（以前の「備考」）。詳細連絡には入れない
   ['unit', '単位'],         // 時給 / 日給
   ['unitPrice', '単価'],
   ['sales', '売上'],
@@ -191,10 +193,9 @@ COLUMNS[JOB_SHEET] = [
   ['conditions', '募集条件'],
   ['meetingTime', '集合時間'],
   ['meetingPlace', '集合場所'],
-  ['address', '住所・アクセス'],
+  ['meetingNote', '集合備考'], // 集合についての注意事項（詳細連絡の「集合備考」に入る）
   ['contactName', '集合担当者名'],
   ['contactPhone', '集合担当連絡先'],
-  ['notes', '備考'],
   ['staffPay', 'スタッフ向け給与'],
   ['staffTransport', 'スタッフ向け交通費'],
   ['detailImages', '詳細連絡の画像'], // Google ドライブのファイルID（カンマ区切り）

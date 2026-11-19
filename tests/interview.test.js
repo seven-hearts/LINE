@@ -335,16 +335,18 @@ test('Google Meet の文面：参加用ボタン（URLがなければ担当者�
   assert.strictEqual(noUrl[0].type, 'text');
   assert.match(noUrl[0].text, /参加用のURLを担当者から/);
 
+  // 当日の朝のリマインドには Meet のリンクを付けない（リンクは面接の時刻にだけ送る）
   const reminder = ctx.reminderMessages_(r, 'meet');
-  assert.strictEqual(reminder.length, 2);
-  assert.strictEqual(reminder[1].template.actions[0].uri, 'https://meet.google.com/abc-defg-hij');
-  assert.strictEqual(ctx.reminderMessages_(r, 'line').length, 1); // LINEコールではボタンなし
+  assert.strictEqual(reminder.length, 1);
+  assert.strictEqual(reminder[0].type, 'text');
+  assert.doesNotMatch(JSON.stringify(reminder), /meet\.google\.com/);
+  assert.strictEqual(ctx.reminderMessages_(r, 'line').length, 1);
 });
 
-test('Google Meet：当日のリマインドはURLができてから、面接の時刻の案内はURLがなくても送る', () => {
+test('Google Meet：当日のリマインドはURLがなくても送る（リンクは面接の時刻の案内でだけ送る）', () => {
   const r = { status: S.INTERVIEW_FIXED, interviewAt: '2026/10/12(月) 14:00' };
   assert.deepStrictEqual(actions(r, at(2026, 10, 12, 9, 0)), ['reminder']); // LINEコール（method なし）
-  assert.deepStrictEqual(Array.from(ctx.scheduledActions_(rec(r), at(2026, 10, 12, 9, 0), 'meet')), []);
+  assert.deepStrictEqual(Array.from(ctx.scheduledActions_(rec(r), at(2026, 10, 12, 9, 0), 'meet')), ['reminder']);
   const withUrl = Object.assign({ meetUrl: 'https://meet.google.com/x' }, r);
   assert.deepStrictEqual(Array.from(ctx.scheduledActions_(rec(withUrl), at(2026, 10, 12, 9, 0), 'meet')), ['reminder']);
   assert.deepStrictEqual(Array.from(ctx.scheduledActions_(rec(Object.assign({ reminderSentAt: 'x' }, r)), at(2026, 10, 12, 14, 0), 'meet')), ['call']);
@@ -472,9 +474,7 @@ test('Google Meet の案内：iPhone はアプリなしで参加でき、Android
   assert.match(guide, /Android の方：「Google Meet」アプリ（無料）を、前日までに入れておいてください/);
   assert.match(guide, /Googleアカウントがなくても参加できます/);
   assert.match(ctx.reminderText_(r, 'meet'), /Android の方で「Google Meet」アプリをまだ入れていない方は/);
-  const btn = ctx.reminderMessages_(r, 'meet')[1];
-  assert.match(btn.template.text, /Android の方は「Google Meet」アプリが必要です/);
-  assert.ok(btn.template.text.length <= 160);
+  assert.match(guide, /面接の時間になると、このトークに「Google Meet に参加する」ボタンが届きます/);
   assert.doesNotMatch(guide, /スマホに「Google Meet」アプリを入れておいてください/);
 });
 

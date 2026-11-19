@@ -18,7 +18,9 @@ var ANTHROPIC_FALLBACK_BETA = 'server-side-fallback-2026-07-01';
 function setupJobSheets_(ss) {
   migrateWorkColumn_(ss.getSheetByName(JOB_SHEET));
   migrateJobColumns_(ss.getSheetByName(JOB_SHEET));
+  migrateJobNotes_(ss.getSheetByName(JOB_SHEET));
   var jobs = ensureSheet_(ss, JOB_SHEET);
+  reorderColumns_(jobs, JOB_SHEET);
   migrateApplyColumns_(ss.getSheetByName(APPLY_SHEET));
   ensureSheet_(ss, APPLY_SHEET);
   reorderColumns_(ss.getSheetByName(APPLY_SHEET), APPLY_SHEET);
@@ -51,6 +53,13 @@ function setupJobSheets_(ss) {
   applySheetFont_(apply);
   fillApplyPayTerms_();
   recalcAllPay_();
+}
+
+/** 「案件一覧」の「備考」を「その他備考」にする（中身はそのまま。「集合備考」は新しい空の列として足す） */
+function migrateJobNotes_(sh) {
+  if (!sh || !sh.getLastColumn()) return;
+  var h = headerMap_(sh);
+  if (h['備考'] !== undefined && h['その他備考'] === undefined) sh.getRange(1, h['備考'] + 1).setValue('その他備考');
 }
 
 /**
@@ -554,8 +563,9 @@ function jobSendInit() {
     var list = sh.getActiveRangeList();
     (list ? list.getRanges() : []).forEach(function (range) {
       if (range.getRow() < 2) return;
-      sh.getRange(range.getRow(), header['案件ID'] + 1, range.getNumRows(), 1).getValues()
-        .forEach(function (v) { if (v[0]) selected[v[0]] = true; });
+      var ids = sh.getRange(range.getRow(), header['案件ID'] + 1, range.getNumRows(), 1).getValues();
+      var dates = sh.getRange(range.getRow(), header['日程'] + 1, range.getNumRows(), 1).getValues();
+      ids.forEach(function (v, i) { if (v[0]) selected[detailGroupKey_({ caseId: v[0], date: dates[i][0] })] = true; });
     });
   }
   return {
@@ -959,7 +969,7 @@ function showDetailSend() {
   SpreadsheetApp.getUi().showModalDialog(html, '確定した人に詳細連絡を送る');
 }
 
-/** 確定した応募を、案件ごと・スタッフごとにまとめる（日程が過ぎたものは除く） */
+/** 確定した応募を、案件・日程ごと、スタッフごとにまとめる（日程が過ぎたものは除く）。caseId は「案件ID|日程」 */
 function confirmedByCase_(now) {
   var today = ymd_(now);
   var slots = {};
@@ -972,11 +982,14 @@ function confirmedByCase_(now) {
     if (a.status !== APPLY_STATUS.CONFIRMED || !a.userId || !slots[a.slotId]) return;
     var d = parseYmd_(a.date);
     if (d && ymd_(d) < today) return;
-    if (!cases[a.caseId]) { cases[a.caseId] = { caseId: a.caseId, staff: {}, staffOrder: [] }; order.push(a.caseId); }
-    var c = cases[a.caseId];
+    var key = detailGroupKey_(a);
+    if (!cases[key]) { cases[key] = { caseId: key, realCaseId: a.caseId, staff: {}, staffOrder: [] }; order.push(key); }
+    var c = cases[key];
     if (!c.staff[a.userId]) { c.staff[a.userId] = { userId: a.userId, name: a.name, apps: [] }; c.staffOrder.push(a.userId); }
     c.staff[a.userId].apps.push(a);
   });
+  var dateOf = function (id) { return id.slice(id.indexOf('|') + 1); };
+  order.sort(function (a, b) { return dateOf(a) < dateOf(b) ? -1 : dateOf(a) > dateOf(b) ? 1 : 0; });
   return order.map(function (id) {
     var c = cases[id];
     c.staffList = c.staffOrder.map(function (u) {
@@ -1004,7 +1017,7 @@ function detailSendInit() {
   return {
     cases: confirmedByCase_(new Date()).map(function (c) {
       return {
-        caseId: c.caseId, title: c.first.title, selected: !!selected[c.caseId], fields: detailDefaults_(c.first),
+        caseId: c.caseId, title: c.first.title + '　' + jpDate_(c.first), selected: !!selected[c.caseId], fields: detailDefaults_(c.first),
         staff: c.staffList.map(function (s) {
           var sent = s.apps.filter(function (a) { return a.detailSentAt; }).length === s.apps.length;
           return {
@@ -1029,7 +1042,7 @@ function detailPreview(req) {
   var s = c.staffList.filter(function (x) { return x.userId === req.userId; })[0] || c.staffList[0];
   var images = (req.fields.images || []).slice(0, DETAIL_MAX_IMAGES);
   return {
-    name: s.name, text: detailText_(req.fields, s.slots), request: travelRequestText_(str_(req.fields.title)),
+    name: s.name, text: detailText_(req.fields, s.slots), request: travelRequestText_(str_(req.fields.title), s.slots),
     images: images.map(driveImageUrl_)
   };
 }
@@ -1043,11 +1056,11 @@ function detailSend(req) {
   var f = req.fields;
   if ((f.images || []).length > DETAIL_MAX_IMAGES) throw new Error('画像は' + DETAIL_MAX_IMAGES + '枚までです');
 
-  // 集合場所などは「案件一覧」にも保存しておく（次に送るときの初期値になる）
+  // 集合場所などは「案件一覧」のその日程の行にも保存しておく（次に送るときの初期値になる）
   readAll_(JOB_SHEET).forEach(function (x) {
-    if (x.rec.caseId !== c.caseId) return;
+    if (detailGroupKey_(x.rec) !== c.caseId) return;
     var changes = {};
-    var saved = { meetingPlace: str_(f.meetingPlace), meetingTime: str_(f.meetingTime),
+    var saved = { meetingPlace: str_(f.meetingPlace), meetingTime: str_(f.meetingTime), meetingNote: str_(f.meetingNote),
       contactName: str_(f.contactName), contactPhone: str_(f.contactPhone), detailImages: (f.images || []).join(',') };
     Object.keys(saved).forEach(function (k) {
       if (saved[k] !== str_(x.rec[k])) changes[k] = saved[k];

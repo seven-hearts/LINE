@@ -90,7 +90,7 @@ function callGuideText_(method) {
 function meetGuideText_() {
   return '面接は、ビデオ通話「Google Meet」で行います（' + INTERVIEW_LENGTH + '）。\n\n' +
     '【当日の流れ】\n' +
-    '① 当日の朝と面接の時間に、このトークに「Google Meet に参加する」ボタンが届きます\n' +
+    '① 面接の時間になると、このトークに「Google Meet に参加する」ボタンが届きます（当日の朝にはリマインドが届きます）\n' +
     '② 面接の時間になったらボタンをタップし、お名前を入力して「参加をリクエスト」を押してください\n' +
     '③ 担当者が参加を承認すると、面接が始まります\n\n' +
     '【スマホの準備（機種によって違います）】\n' +
@@ -127,13 +127,9 @@ function reminderText_(rec, method) {
     'ご都合が悪くなった場合は、このトークでお知らせください。';
 }
 
-/** 当日の朝のリマインド。Google Meet なら参加用のボタンも付ける（下見やアプリの準備に使えるように） */
+/** 当日の朝のリマインド（Google Meet のリンクは付けない。リンクは面接の時刻にだけ送る） */
 function reminderMessages_(rec, method) {
-  var messages = [textMessage_(reminderText_(rec, method))];
-  if (isMeet_(method) && rec.meetUrl) {
-    messages.push(buttonMessage_('面接の参加用ボタンです。面接の時間になったら押してください（Android の方は「Google Meet」アプリが必要です）', 'Google Meet に参加する', rec.meetUrl));
-  }
-  return messages;
+  return [textMessage_(reminderText_(rec, method))];
 }
 
 /**
@@ -238,7 +234,7 @@ function rejectDueAt_(changedAt, status) {
 
 /**
  * 1人分の、今送るべきメッセージの種類。
- * Google Meet では、参加用のURLができるまで当日の朝のリマインドを待つ（面接の時刻の案内は、URLがなくても送る）。
+ * Google Meet のリンクは面接の時刻の案内でだけ送る（当日の朝のリマインドには付けない）。
  * @return {string[]} 'docReject' / 'interviewReject' / 'reminder' / 'call'
  */
 function scheduledActions_(rec, now, method) {
@@ -252,7 +248,7 @@ function scheduledActions_(rec, now, method) {
   if (rec.status === STATUS.INTERVIEW_FIXED) {
     var at = parseDateTime_(rec.interviewAt, now);
     if (at) {
-      if (!rec.reminderSentAt && now < at && now.getHours() >= REMINDER_HOUR && (!isMeet_(method) || rec.meetUrl) &&
+      if (!rec.reminderSentAt && now < at && now.getHours() >= REMINDER_HOUR &&
           startOfDay_(now).getTime() === startOfDay_(at).getTime()) {
         actions.push('reminder');
       }

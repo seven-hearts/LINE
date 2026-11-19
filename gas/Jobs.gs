@@ -114,7 +114,8 @@ var JOB_FIELD_RULES_ =
     '- transport_fee：1人あたりの交通費（往復の金額）。transport_note に区間など\n' +
     '- meal_fee：食費の金額。金額がなく「支給あり」「なし」などなら meal_note に入れる\n' +
     '- gender：性別の指定（「男女不問」「男女可能」は 男女可）。conditions には性別・年齢などの条件をそのまま\n' +
-    '- notes：時間が前後する可能性など、上の項目に入らない注意事項（短く）\n' +
+    '- meeting_note：集合についての注意事項（例：「集合場所がわからなければ担当者に電話」「時間厳守」）。なければ空文字\n' +
+    '- notes：時間が前後する可能性など、上の項目にも集合にも当たらない注意事項（短く）\n' +
     '- client_name：依頼文に依頼元の会社名がはっきり書かれていれば。なければ空文字';
 
 var NULLABLE_INT_ = { anyOf: [{ type: 'integer' }, { type: 'null' }] };
@@ -141,6 +142,7 @@ var JOB_DETAIL_SCHEMA = objectSchema_({
   belongings: { type: 'string' },
   meeting_time: { type: 'string' },
   meeting_place: { type: 'string' },
+  meeting_note: { type: 'string', description: '集合についての注意事項。なければ空文字' },
   contact: { type: 'string', description: '現場の集合担当者・連絡先' },
   pay_basis: { type: 'string', enum: PAY_BASIS },
   unit_price: NULLABLE_INT_,
@@ -274,6 +276,7 @@ function normalizeCase_(c) {
     belongings: str_(c.belongings),
     meetingTime: str_(c.meeting_time),
     meetingPlace: str_(c.meeting_place),
+    meetingNote: str_(c.meeting_note),
     contactName: splitContact_(c.contact).name,
     contactPhone: splitContact_(c.contact).phone,
     payBasis: PAY_BASIS.indexOf(c.pay_basis) >= 0 ? c.pay_basis : '記載なし',
@@ -456,6 +459,7 @@ function jobRows_(cases, opts) {
         conditions: c.conditions,
         meetingTime: c.meetingTime,
         meetingPlace: c.meetingPlace,
+        meetingNote: str_(c.meetingNote),
         address: c.address,
         contactName: str_(c.contactName),
         contactPhone: str_(c.contactPhone),
@@ -761,6 +765,7 @@ function detailDefaults_(row) {
     timeNote: /前後/.test(str_(row.notes)) ? '多少前後する可能性があります。' : '',
     meetingPlace: str_(row.meetingPlace),
     meetingTime: str_(row.meetingTime),
+    meetingNote: str_(row.meetingNote),
     contactName: contact.name,
     contactPhone: contact.phone,
     dress: d.dress,
@@ -794,6 +799,7 @@ function detailText_(f, slots) {
   section('時間', time);
   section('集合場所', f.meetingPlace);
   section('集合時間', f.meetingTime);
+  section('集合備考', f.meetingNote);
   var name = str_(f.contactName), phone = str_(f.contactPhone);
   if (name) parts.push('■集合担当：' + name + (phone ? '\n' + phone : ''));
   else if (phone) parts.push('■集合担当\n' + phone);
@@ -833,13 +839,14 @@ function detailMessages_(f, slots) {
   var images = (f.images || []).slice(0, DETAIL_MAX_IMAGES).map(function (id) {
     return { type: 'image', originalContentUrl: driveImageUrl_(id), previewImageUrl: driveImageUrl_(id) };
   });
-  return [{ type: 'text', text: detailText_(f, slots) }].concat(images, [{ type: 'text', text: travelRequestText_(str_(f.title)) }]);
+  return [{ type: 'text', text: detailText_(f, slots) }].concat(images, [{ type: 'text', text: travelRequestText_(str_(f.title), slots) }]);
 }
 
-/** 詳細連絡のあとに送る、交通費と出発時間の返信のお願い */
-function travelRequestText_(title) {
+/** 詳細連絡のあとに送る、交通費と出発時間の返信のお願い（slots があれば日程も入れる） */
+function travelRequestText_(title, slots) {
+  var dates = (slots || []).map(jpDate_).join('・');
   return '【ご返信のお願い】\n' +
-    '「' + title + '」の交通費（往復）と出発時間を調べて、このトークに返信してください。\n\n' +
+    '「' + title + '」' + (dates ? '（' + dates + '）' : '') + 'の交通費（往復）と出発時間を調べて、このトークに返信してください。\n\n' +
     '（返信の例）\n交通費：1,060円\n出発時間：7:30\n\n' +
     '※交通費は、ご自宅の最寄り駅から現場の最寄り駅までの往復の金額です\n' +
     '※出発時間は、ご自宅を出発する時間です';
@@ -867,7 +874,7 @@ function parseTravelReply_(text) {
 
 /**
  * 返信を待っている応募（確定・勤務ステータスが詳細送付済か出発時間確認済・交通費か出発時間がまだ・日程が今日以降）を、
- * 案件ごとにまとめて日程の早い順に返す。
+ * 案件・日程ごとにまとめて日程の早い順に返す（詳細連絡は日程ごとに送るので、返信も日程ごとに受け付ける）。
  * @param {Array} apps 「案件応募」の行（rowToRecord_ の形。_row にシートの行番号）
  */
 function travelPending_(apps, userId, now) {
@@ -881,8 +888,9 @@ function travelPending_(apps, userId, now) {
     if (str_(a.fare) !== '' && str_(a.departure) !== '') return;
     var d = parseYmd_(a.date);
     if (d && ymd_(d) < today) return;
-    if (!byCase[a.caseId]) { byCase[a.caseId] = []; order.push(a.caseId); }
-    byCase[a.caseId].push(a);
+    var k = detailGroupKey_(a);
+    if (!byCase[k]) { byCase[k] = []; order.push(k); }
+    byCase[k].push(a);
   });
   var key = function (a) { return ymd_(parseYmd_(a.date) || now); };
   var groups = order.map(function (id) {
@@ -891,6 +899,12 @@ function travelPending_(apps, userId, now) {
   var first = function (g) { return key(g[0]); };
   groups.sort(function (a, b) { return first(a) < first(b) ? -1 : first(a) > first(b) ? 1 : 0; });
   return groups;
+}
+
+/** 詳細連絡をまとめる単位：案件ID ＋ 日程（日程ごとに集合時間が違うことがあるため、日程ごとに送る） */
+function detailGroupKey_(a) {
+  var d = parseYmd_(a.date);
+  return str_(a.caseId) + '|' + (d ? ymd_(d) : str_(a.date));
 }
 
 /** 返信を受け付けたときの返事 */
