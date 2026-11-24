@@ -736,7 +736,13 @@ function onJobPostback_(ev, userId, params) {
 function onApplyEdit_(e) {
   var sh = e.range.getSheet();
   var header = headerMap_(sh);
-  updateWorkPay_(sh, header, e.range);
+  // 給与の計算でエラーになっても、確定・見送りなどの連絡は止めない（エラーはシート「エラーログ」に残す）
+  try {
+    updateWorkPay_(sh, header, e.range);
+  } catch (err) {
+    console.error('updateWorkPay failed', err && err.stack || err);
+    logError_('案件応募：給与の計算', '', err);
+  }
   var statusCol = header['状態'] + 1;
   if (e.range.getColumn() > statusCol || e.range.getLastColumn() < statusCol) return;
   var firstRow = Math.max(e.range.getRow(), 2);
@@ -811,12 +817,33 @@ function updateWorkPay_(sh, header, range) {
 var PREMIUM_COLOR = '#fff59d';
 var PREMIUM_CELL_LABELS = ['勤務開始時間', '勤務終了時間', '実働時間'];
 
+/** 時間を入れる列。セルが時刻の書式だと、Apps Script では日本時間で約19分ずれて読めてしまうため、表示されている文字で読む */
+var PAY_TIME_LABELS = ['勤務開始時間', '勤務終了時間', '休憩時間'];
+
+/** values の勤務開始時間・勤務終了時間・休憩時間を、シートに表示されている文字（「9:00」など）に置き換える */
+function withDisplayTimes_(sh, header, firstRow, values) {
+  if (!values.length) return values;
+  var range = sh.getRange(firstRow, 1, values.length, values[0].length);
+  if (typeof range.getDisplayValues !== 'function') return values;
+  var shown = range.getDisplayValues();
+  return values.map(function (v, k) {
+    var row = v.slice();
+    PAY_TIME_LABELS.forEach(function (l) {
+      var i = header[l];
+      // 時刻の書式のセル（Date）だけ置き換える。文字で入っているものはそのまま
+      if (i !== undefined && Object.prototype.toString.call(row[i]) === '[object Date]') row[i] = shown[k][i];
+    });
+    return row;
+  });
+}
+
 /**
  * firstRow から続く行（values はその行の値）の、実働時間・給与額・所得税・振込総額を書き、割増のある行の勤務時間を黄色にする。
  * 給与振込日が入っている行（振込データを作った行）は、変えない
  */
-function writePayRows_(sh, header, firstRow, values) {
+function writePayRows_(sh, header, firstRow, values, timesShown) {
   if (!values.length) return;
+  if (!timesShown) values = withDisplayTimes_(sh, header, firstRow, values);
   var out = { '実働時間': [], '給与額': [], '所得税（丙欄）': [], '振込総額': [] };
   var colors = [];
   values.forEach(function (v) {
@@ -852,6 +879,36 @@ function recalcAllPay_() {
   var header = headerMap_(sh);
   if (header['給与額'] === undefined || header['振込総額'] === undefined) return;
   writePayRows_(sh, header, 2, sh.getRange(2, 1, sh.getLastRow() - 1, sh.getLastColumn()).getValues());
+}
+
+/**
+ * 1分ごと（runJobScheduler_ から）：実働時間・給与額・所得税・振込総額が、今の入力と合っていない行を計算し直す。
+ * 編集したときの自動計算が動かなかった場合（貼り付け・古いコードのときの編集・エラーなど）も、1分以内に直る。
+ * 振込済み（給与振込日あり）の行は変えない。1回に直すのは PAY_SYNC_MAX_ROWS 行まで。直した行数を返す
+ */
+var PAY_SYNC_MAX_ROWS = 50;
+function syncPayRows_() {
+  var sh = sheet_(APPLY_SHEET);
+  if (sh.getLastRow() < 2) return 0;
+  var header = headerMap_(sh);
+  if (header['給与額'] === undefined || header['実働時間'] === undefined || header['振込総額'] === undefined) return 0;
+  var values = withDisplayTimes_(sh, header, 2, sh.getRange(2, 1, sh.getLastRow() - 1, sh.getLastColumn()).getValues());
+  var same = function (a, b) {
+    var na = toNum_(a), nb = toNum_(b);
+    if (na !== null && nb !== null) return Math.abs(na - nb) < 0.005;
+    return str_(a) === str_(b);
+  };
+  var fixed = 0;
+  values.forEach(function (v, k) {
+    if (fixed >= PAY_SYNC_MAX_ROWS) return;
+    var app = rowToRecord_(APPLY_SHEET, header, v);
+    if (str_(app.paidOn)) return;
+    var f = rowPayFields_(app);
+    if (same(app.actualHours, f.actualHours) && same(app.pay, f.pay) && same(app.incomeTax, f.incomeTax) && same(app.netPay, f.netPay)) return;
+    writePayRows_(sh, header, k + 2, [v], true);
+    fixed++;
+  });
+  return fixed;
 }
 
 /** 指定した行（シートの行番号）だけ計算し直す（交通費の返信が来たときなど） */
@@ -1256,6 +1313,12 @@ function runJobScheduler_(now) {
   var needed = ['勤務ステータス', '開始予定時間', '出発確認の送信日時', '担当者への通知日時', '終了確認の送信日時', '終了報告の日時'];
   if (needed.some(function (l) { return header[l] === undefined; })) return;
   syncApplyTimes_();
+  try {
+    syncPayRows_();
+  } catch (err) {
+    console.error('pay sync failed', err && err.stack || err);
+    logError_('案件応募：給与の計算（1分ごと）', '', err);
+  }
   try {
     syncWorkCalendar_(now);
   } catch (err) {

@@ -204,3 +204,47 @@ test('案件応募のシート：給与を書き、割増のある行の勤務�
   assert.deepStrictEqual(bg['勤務終了時間'], [null, '#fff59d', '#ffffff']);
   assert.deepStrictEqual(bg['実働時間'], [null, '#fff59d', '#ffffff']);
 });
+
+test('1分ごとの給与の見直し：合っていない行だけ計算し直す（時刻の書式のセルは表示どおりに読む・振込済みは変えない）', () => {
+  const c = vm.createContext({});
+  for (const f of ['Options.gs', 'Validation.gs', 'Line.gs', 'Sheet.gs', 'Interview.gs', 'Shift.gs', 'Jobs.gs', 'JobsApp.gs', 'Payroll.gs']) {
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'gas', f), 'utf8'), c, { filename: f });
+  }
+  const cols = c.COLUMNS[c.APPLY_SHEET];
+  const labels = cols.map((x) => x[1]);
+  const header = {};
+  labels.forEach((l, i) => { header[l] = i; });
+  const row = (o) => cols.map((x) => (o[x[0]] === undefined ? '' : o[x[0]]));
+  // 時刻の書式のセルは、Apps Script では約19分ずれた Date で読める（表示は「22:00」）
+  const shifted = (h, m) => new Date(1899, 11, 30, h, m + 18, 59);
+  const grid = [
+    labels,
+    row({ actualStart: '9:00', actualEnd: '18:00', actualBreak: 1, payUnit: '時給', payRate: 1200, actualHours: 8, pay: 9600, incomeTax: 0, netPay: 9600 }), // 合っている
+    row({ actualStart: '9:00', actualEnd: '19:00', actualBreak: 1, payUnit: '時給', payRate: 1200, actualHours: 8, pay: 9600, incomeTax: 0, netPay: 9600 }), // 勤務終了を変えたのに古いまま
+    row({ actualStart: shifted(14, 0), actualEnd: shifted(22, 0), actualBreak: 1, payUnit: '時給', payRate: 1200 }), // 時刻の書式
+    row({ actualStart: '9:00', actualEnd: '19:00', actualBreak: 1, payUnit: '時給', payRate: 1200, actualHours: 8, pay: 9600, paidOn: '2026/11/25' }) // 振込済み
+  ];
+  const display = grid.map((r) => r.map((v) => (v instanceof Date ? v.getHours() + ':00' : String(v))));
+  const sheet = {
+    getLastRow: () => grid.length,
+    getLastColumn: () => labels.length,
+    getRange: (r, col, nr, nc) => ({
+      getValues: () => grid.slice(r - 1, r - 1 + (nr || 1)).map((x) => x.slice(col - 1, col - 1 + (nc || 1))),
+      getDisplayValues: () => display.slice(r - 1, r - 1 + (nr || 1)).map((x) => x.slice(col - 1, col - 1 + (nc || 1))),
+      setValues: (v) => v.forEach((x, i) => { grid[r - 1 + i][col - 1] = x[0]; }),
+      getBackgrounds: () => Array.from({ length: nr }, () => ['#ffffff']),
+      setBackgrounds: () => {}
+    })
+  };
+  c.__sheet = sheet;
+  vm.runInContext('sheet_ = function () { return __sheet; }; headerMap_ = function () { var m = {}; COLUMNS[APPLY_SHEET].forEach(function (x, i) { m[x[1]] = i; }); return m; };', c);
+  assert.strictEqual(c.syncPayRows_(), 2);
+  const get = (r, key) => grid[r][labels.indexOf(cols.find((x) => x[0] === key)[1])];
+  assert.strictEqual(get(2, 'actualHours'), 9);
+  assert.strictEqual(get(2, 'pay'), 1200 * 9 + 300);          // 8時間を超えた1時間は25%増し
+  // 14:00〜22:00（休憩1時間）：深夜なし・時間外なし → 7時間ちょうど（19分ずれて読むと深夜の割増が付いてしまう）
+  assert.strictEqual(get(3, 'actualHours'), 7);
+  assert.strictEqual(get(3, 'pay'), 8400);
+  assert.strictEqual(get(4, 'pay'), 9600);                     // 振込済みは変えない
+  assert.strictEqual(c.syncPayRows_(), 0);                     // 2回目は直すものがない
+});
