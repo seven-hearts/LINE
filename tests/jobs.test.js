@@ -1429,3 +1429,41 @@ test('詳細連絡の PDF：本文の最後にリンクを入れ、「案件一�
   // PDF がなければ見出しも出さない
   assert.doesNotMatch(ctx.detailText_(Object.assign({}, f, { pdfs: [] }), [lohas[0]]), /資料（PDF）/);
 });
+
+test('休憩時間：「1:00」が時刻の数値に変わっても1時間として読み、setup で「1:00」の文字に戻す', () => {
+  const h = (v) => ctx.breakHours_(v);
+  assert.strictEqual(h('1:00'), 1);
+  assert.strictEqual(h(1 / 24), 1);            // 1:00 → 0.041666…
+  assert.strictEqual(h(45 / 1440), 0.75);      // 0:45
+  assert.strictEqual(h(90 / 1440), 1.5);       // 1:30
+  assert.strictEqual(h(0.5), 0.5);             // 時間で入れた 0.5 はそのまま
+  assert.strictEqual(h(0.25), 0.25);
+  assert.strictEqual(h(1), 1);
+  assert.strictEqual(h(60), 1);                // 12より大きい数は分
+  const t = (v, shown) => ctx.breakCellText_(v, shown);
+  assert.strictEqual(t(1 / 24, '0.04'), '1:00');
+  assert.strictEqual(t(45 / 1440, '0.03'), '0:45');
+  assert.strictEqual(t(new Date(1899, 11, 30, 1, 18, 59), '1:00:00'), '1:00'); // 時刻の書式は表示から
+  assert.strictEqual(t('1:00', '1:00'), null);  // 文字はそのまま
+  assert.strictEqual(t(1, '1'), null);
+  assert.strictEqual(t(0.5, '0.5'), null);
+  assert.strictEqual(t('', ''), null);
+
+  const c = vm.createContext({});
+  for (const f of ['Options.gs', 'Validation.gs', 'Line.gs', 'Sheet.gs', 'Interview.gs', 'Code.gs', 'Jobs.gs', 'JobsApp.gs']) {
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'gas', f), 'utf8'), c, { filename: f });
+  }
+  const col = [[1 / 24, '0.04'], ['1:30', '1:30'], [0.5, '0.5'], [new Date(1899, 11, 30, 0, 63, 59), '0:45:00'], ['', '']];
+  let written = null;
+  const sheet = {
+    getLastRow: () => col.length + 1,
+    getRange: () => ({
+      getValues: () => col.map((x) => [x[0]]),
+      getDisplayValues: () => col.map((x) => [x[1]]),
+      setValues: (v) => { written = v.map((x) => x[0]); }
+    })
+  };
+  assert.strictEqual(c.fixBreakCells_(sheet, { '休憩時間': 0 }), 2);
+  assert.deepStrictEqual(written.slice(0, 3).concat(written.slice(4)), ['1:00', '1:30', 0.5, '']);
+  assert.strictEqual(written[3], '0:45');
+});

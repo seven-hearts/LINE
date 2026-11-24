@@ -324,10 +324,36 @@ function staffPayTerms_(text) {
   return { unit: m[1], rate: +m[2].replace(/,/g, '') };
 }
 
+/**
+ * 「1:00」と入れたセルが時刻の数値（1日 = 1。1:00 → 0.041666…）に変わってしまったものなら、その分数。違えば null。
+ * 1日の割合を分にして5分単位になり、0.25・0.5 など時間で入れた数（4倍して整数）ではないものを時刻とみなす
+ */
+function timeSerialMinutes_(v) {
+  if (!isNum_(v) || v <= 0 || v >= 1) return null;
+  var min = v * 1440;
+  if (Math.abs(min - Math.round(min)) > 1e-6 || Math.round(min) % 5) return null;
+  if (Math.abs(v * 4 - Math.round(v * 4)) < 1e-9) return null;
+  return Math.round(min);
+}
+
+/**
+ * 休憩時間のセル → 「1:00」の形の文字に直すべきなら、その文字。直さなくてよければ null。
+ * 時刻（Date）は表示されている文字から、時刻の数値は分から作る（Date は日本時間で約19分ずれて読めるため、値は使わない）
+ */
+function breakCellText_(v, shown) {
+  if (Object.prototype.toString.call(v) === '[object Date]') {
+    var m = /^(\d{1,2}):(\d{2})/.exec(str_(shown));
+    return m ? +m[1] + ':' + m[2] : null;
+  }
+  var min = timeSerialMinutes_(v);
+  return min === null ? null : Math.floor(min / 60) + ':' + pad2_(min % 60);
+}
+
 /** 休憩時間 → 時間数。数字は時間（12より大きければ分とみなす）、「45分」「1時間30分」「1:00」も読む。空欄は0、読めなければ null */
 function breakHours_(v) {
   if (v === '' || v === null || v === undefined) return 0;
   if (Object.prototype.toString.call(v) === '[object Date]') return round2_(v.getHours() + v.getMinutes() / 60);
+  if (timeSerialMinutes_(v) !== null) return round2_(timeSerialMinutes_(v) / 60); // 「1:00」が時刻の数値に変わったもの
   if (isNum_(v)) return v > 12 ? round2_(v / 60) : v;
   var s = str_(v).replace(/[０-９：．]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 0xFEE0); });
   var m;

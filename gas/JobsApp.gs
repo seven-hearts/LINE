@@ -48,7 +48,10 @@ function setupJobSheets_(ss) {
   var ah = headerMap_(apply);
   var acol = function (label) { return apply.getRange(2, ah[label] + 1, apply.getMaxRows() - 1, 1); };
   ['交通費（往復）', '単価', '給与額', '手当', '所得税（丙欄）', '振込総額'].forEach(function (l) { acol(l).setNumberFormat('¥#,##0'); });
-  ['休憩時間', '実働時間'].forEach(function (l) { acol(l).setNumberFormat('0.##'); });
+  acol('実働時間').setNumberFormat('0.##');
+  // 休憩時間は書式なしテキスト（「1:00」と入れても時刻に変わらないように）。時刻に変わってしまった値は文字に戻す
+  acol('休憩時間').setNumberFormat('@');
+  fixBreakCells_(apply, ah);
   acol('給与形態').setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(UNITS, true).build());
   applySheetFont_(apply);
   fillApplyPayTerms_();
@@ -870,6 +873,26 @@ function writePayRows_(sh, header, firstRow, values, timesShown) {
     var now = colors.some(function (c) { return c === null; }) ? range.getBackgrounds() : null;
     range.setBackgrounds(colors.map(function (c, k) { return [c === null ? now[k][0] : (c || null)]; }));
   });
+}
+
+/**
+ * setup から：「案件応募」の休憩時間で、時刻（Date）や時刻の数値（1:00 → 0.0416…）に変わってしまったセルを、
+ * 「1:00」の形の文字に戻す。直したセルの数を返す
+ */
+function fixBreakCells_(sh, header) {
+  var col = header['休憩時間'];
+  if (col === undefined || sh.getLastRow() < 2) return 0;
+  var range = sh.getRange(2, col + 1, sh.getLastRow() - 1, 1);
+  var values = range.getValues(), shown = range.getDisplayValues();
+  var fixed = 0;
+  var out = values.map(function (v, k) {
+    var text = breakCellText_(v[0], shown[k][0]);
+    if (text === null) return [v[0]];
+    fixed++;
+    return [text];
+  });
+  if (fixed) range.setValues(out);
+  return fixed;
 }
 
 /** setup から：「案件応募」のすべての行（振込済みを除く）の給与を、今の計算のしかたで計算し直す */
