@@ -67,3 +67,6 @@ var UNRESTRICTED_STATUSES = ['永住者', '特別永住者', '日本人の配偶
 
 /** 資格外活動許可がないと就労できない在留資格 */
 var PERMISSION_REQUIRED_STATUSES = ['留学', '家族滞在'];
+
+// 版の印（npm run stamp:gas で自動更新。手で変えないでください）
+var GAS_FILE_BUILDS_ = (typeof GAS_FILE_BUILDS_ === 'object' && GAS_FILE_BUILDS_) || {}; GAS_FILE_BUILDS_['Options.gs'] = 'ea9ce1accc54';

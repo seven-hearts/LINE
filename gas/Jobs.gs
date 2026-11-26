@@ -1252,3 +1252,5 @@ function confirmConflictMemo_(other) {
   return '同じ日（' + other.date + '）に「' + other.title + '」（' + appTimeText_(other) + '）で確定しているため、確定にできませんでした';
 }
 
+// 版の印（npm run stamp:gas で自動更新。手で変えないでください）
+var GAS_FILE_BUILDS_ = (typeof GAS_FILE_BUILDS_ === 'object' && GAS_FILE_BUILDS_) || {}; GAS_FILE_BUILDS_['Jobs.gs'] = 'ea9ce1accc54';

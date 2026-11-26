@@ -426,3 +426,6 @@ function validateOnboarding(input, today) {
   v.throwIfErrors();
   return { record: r, images: images };
 }
+
+// 版の印（npm run stamp:gas で自動更新。手で変えないでください）
+var GAS_FILE_BUILDS_ = (typeof GAS_FILE_BUILDS_ === 'object' && GAS_FILE_BUILDS_) || {}; GAS_FILE_BUILDS_['Validation.gs'] = 'ea9ce1accc54';

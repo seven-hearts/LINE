@@ -1,0 +1,26 @@
+# テスト（npm test）を自動で動かす。gas/ の「版の印」が古いままのコミットも、ここで見つかる。
+name: テスト
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: 道具を入れる
+        run: npm ci --no-audit --no-fund
+
+      - name: テスト
+        run: npm test
