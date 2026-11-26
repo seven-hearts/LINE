@@ -100,7 +100,7 @@ function doPost(e) {
  * コードの版。コードを変えるたびに更新する。
  * checkSettings がウェブアプリ（デプロイ済み）の版と比べて、デプロイし忘れを見つける。
  */
-var APP_VERSION = '2026-11-24.2';
+var APP_VERSION = '2026-11-26.1';
 
 function doGet() {
   return json_({ ok: true, service: 'sevenhearts-staff-registration', version: APP_VERSION });
@@ -245,6 +245,10 @@ function onStatusEdit(e) {
         case STATUS.DOC_FAILED:
           // すぐに送る。送れなかった場合も runScheduler が1分以内に送り直す
           runAction_(rec, 'docReject', '');
+          break;
+        case STATUS.NO_SHOW:
+          // 面接に参加しなかった：すぐに送る（送れなかった場合も runScheduler が1分以内に送り直す）
+          runAction_(rec, 'noShow', '');
           break;
         case STATUS.INTERVIEW_FIXED:
           sendInterviewFixedByAdmin_(rec);

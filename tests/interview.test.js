@@ -479,7 +479,7 @@ test('Google Meet の案内：iPhone はアプリなしで参加でき、Android
 });
 
 test('スタッフ登録：書類落選・不採用・退会の行をグレーにする（setup を何度実行しても1つだけ）', () => {
-  assert.strictEqual(ctx.inactiveRowFormula_('K'), '=OR($K2="書類落選",$K2="不採用",$K2="選考辞退",$K2="退会")');
+  assert.strictEqual(ctx.inactiveRowFormula_('K'), '=OR($K2="書類落選",$K2="不採用",$K2="面接不参加",$K2="選考辞退",$K2="退会")');
   const other = { getBooleanCondition: () => ({ getCriteriaValues: () => ['=$A2=""'] }) };
   const old = { getBooleanCondition: () => ({ getCriteriaValues: () => ['=OR($J2="不採用",$J2="退会")'] }) };
   let saved = null;
@@ -502,7 +502,7 @@ test('スタッフ登録：書類落選・不採用・退会の行をグレー�
   ctx.grayOutInactiveRows_(sheet, 11);
   assert.strictEqual(saved.length, 2);
   assert.strictEqual(saved[0], other);
-  assert.strictEqual(built.formula, '=OR($K2="書類落選",$K2="不採用",$K2="選考辞退",$K2="退会")');
+  assert.strictEqual(built.formula, '=OR($K2="書類落選",$K2="不採用",$K2="面接不参加",$K2="選考辞退",$K2="退会")');
   assert.strictEqual(built.bg, '#e0e0e0');
   assert.deepStrictEqual([built.ranges[0].r, built.ranges[0].c, built.ranges[0].nr, built.ranges[0].nc], [2, 1, 999, 30]);
 });
@@ -565,4 +565,17 @@ test('選考辞退：面接の予定はカレンダーから消し、通知は�
   assert.strictEqual(ctx.calendarAction_(rec, now), 'delete');
   assert.deepStrictEqual(Array.from(ctx.scheduledActions_(rec, new Date(2026, 9, 25, 14, 0), 'meet')), []);
   assert.ok(Object.values(ctx.STATUS).includes('選考辞退'));
+});
+
+test('面接不参加：すぐに「面接を実施できなかったため不採用」と別日程の案内を送る', () => {
+  const r = rec({ status: S.NO_SHOW, interviewAt: '2026/11/20(金) 14:00', statusChangedAt: '2026/11/20 15:00:00' });
+  assert.strictEqual(S.NO_SHOW, '面接不参加');
+  assert.deepStrictEqual(Array.from(ctx.scheduledActions_(r, new Date(2026, 10, 20, 15, 0), 'meet')), ['noShow']); // すぐ
+  assert.deepStrictEqual(Array.from(ctx.scheduledActions_(Object.assign({}, r, { rejectNotifiedAt: 'x' }), new Date(2026, 10, 20, 15, 1), 'meet')), []);
+  const text = ctx.noShowText_(r);
+  assert.match(text, /^山田 花子 様/);
+  assert.match(text, /面接（2026\/11\/20\(金\) 14:00）にご参加いただけず、面接を実施できなかったため、誠に恐れ入りますが、この度は不採用とさせていただきます/);
+  assert.match(text, /別の日程での面接をご希望の場合は、このトークにメッセージをお送りください/);
+  // 面接の時刻の案内やリマインドはもう送らない
+  assert.deepStrictEqual(Array.from(ctx.scheduledActions_(Object.assign({}, r, { rejectNotifiedAt: 'x' }), new Date(2026, 10, 20, 14, 0), 'meet')), []);
 });

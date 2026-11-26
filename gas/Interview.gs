@@ -59,6 +59,22 @@ function docRejectText_(rec) {
     'セブンハーツ 採用担当';
 }
 
+/** 面接に参加しなかった人への連絡（不採用。別の日程を希望すればトークで受け付ける） */
+function noShowText_(rec) {
+  return fullName_(rec) + ' 様\n\n' +
+    'このたびは、セブンハーツのスタッフにご応募いただき、ありがとうございました。\n\n' +
+    (rec.interviewAt ? 'ご予約いただいていた面接（' + rec.interviewAt + '）に' : 'ご予約いただいていた面接に') +
+    'ご参加いただけず、面接を実施できなかったため、誠に恐れ入りますが、この度は不採用とさせていただきます。\n\n' +
+    'もし別の日程での面接をご希望の場合は、このトークにメッセージをお送りください。担当者から改めて日程のご相談をさせていただきます。\n\n' +
+    'セブンハーツ 採用担当';
+}
+
+/** 不採用の連絡を送るステータス → 送る種類 */
+var REJECT_ACTIONS = {};
+REJECT_ACTIONS[STATUS.DOC_FAILED] = 'docReject';
+REJECT_ACTIONS[STATUS.REJECTED] = 'interviewReject';
+REJECT_ACTIONS[STATUS.NO_SHOW] = 'noShow';
+
 function interviewRejectText_(rec) {
   return fullName_(rec) + ' 様\n\n' +
     'このたびは、セブンハーツのイベントスタッフにご応募いただき、誠にありがとうございました。\n\n' +
@@ -225,24 +241,24 @@ function parseTimestamp_(s) {
 
 /**
  * 不採用通知を送る時刻。
- * 書類落選：ステータスを変えたらすぐ／不採用（面接後）：変えた日の翌日の午前10時
+ * 書類落選・面接不参加：ステータスを変えたらすぐ／不採用（面接後）：変えた日の翌日の午前10時
  */
 function rejectDueAt_(changedAt, status) {
-  if (status === STATUS.DOC_FAILED) return changedAt;
+  if (status === STATUS.DOC_FAILED || status === STATUS.NO_SHOW) return changedAt;
   return new Date(changedAt.getFullYear(), changedAt.getMonth(), changedAt.getDate() + 1, REJECT_NOTICE_HOUR, 0);
 }
 
 /**
  * 1人分の、今送るべきメッセージの種類。
  * Google Meet のリンクは面接の時刻の案内でだけ送る（当日の朝のリマインドには付けない）。
- * @return {string[]} 'docReject' / 'interviewReject' / 'reminder' / 'call'
+ * @return {string[]} 'docReject' / 'interviewReject' / 'noShow' / 'reminder' / 'call'
  */
 function scheduledActions_(rec, now, method) {
   var actions = [];
-  if ((rec.status === STATUS.DOC_FAILED || rec.status === STATUS.REJECTED) && !rec.rejectNotifiedAt) {
+  if (REJECT_ACTIONS[rec.status] && !rec.rejectNotifiedAt) {
     var changed = parseTimestamp_(rec.statusChangedAt);
     if (changed && now >= rejectDueAt_(changed, rec.status)) {
-      actions.push(rec.status === STATUS.DOC_FAILED ? 'docReject' : 'interviewReject');
+      actions.push(REJECT_ACTIONS[rec.status]);
     }
   }
   if (rec.status === STATUS.INTERVIEW_FIXED) {
@@ -399,7 +415,7 @@ function pendingNotices_(now) {
   rows.forEach(function (values) {
     var rec = rowToRecord_(REG_SHEET, header, values);
     if (!rec.userId || rec.rejectNotifiedAt) return;
-    if (rec.status !== STATUS.DOC_FAILED && rec.status !== STATUS.REJECTED) return;
+    if (!REJECT_ACTIONS[rec.status]) return;
     var changed = parseTimestamp_(rec.statusChangedAt);
     var label = fullName_(rec) + '（' + rec.status + '）：';
     if (!changed) {
@@ -448,7 +464,7 @@ function showPendingNotices() {
     lines.length ? lines.join('\n') : '送信待ちの不採用通知はありません。', SpreadsheetApp.getUi().ButtonSet.OK);
 }
 
-/** 「書類落選」「不採用」で未送信の人に、午前10時を待たずに今すぐ通知を送る */
+/** 「書類落選」「不採用」「面接不参加」で未送信の人に、午前10時を待たずに今すぐ通知を送る */
 function sendRejectionsNow() {
   var ui = SpreadsheetApp.getUi();
   var sh = sheet_(REG_SHEET);
@@ -456,7 +472,7 @@ function sendRejectionsNow() {
   var header = headerMap_(sh);
   var rows = sh.getRange(2, 1, sh.getLastRow() - 1, sh.getLastColumn()).getValues();
   var targets = rows.map(function (v) { return rowToRecord_(REG_SHEET, header, v); }).filter(function (rec) {
-    return rec.userId && !rec.rejectNotifiedAt && (rec.status === STATUS.DOC_FAILED || rec.status === STATUS.REJECTED);
+    return rec.userId && !rec.rejectNotifiedAt && !!REJECT_ACTIONS[rec.status];
   });
   if (!targets.length) return ui.alert('送信待ちの不採用通知はありません。');
   var answer = ui.alert('不採用通知を今すぐ送る',
@@ -464,7 +480,7 @@ function sendRejectionsNow() {
     ui.ButtonSet.OK_CANCEL);
   if (answer !== ui.Button.OK) return;
   targets.forEach(function (rec) {
-    runAction_(rec, rec.status === STATUS.DOC_FAILED ? 'docReject' : 'interviewReject', '', '');
+    runAction_(rec, REJECT_ACTIONS[rec.status], '', '');
   });
   ui.alert('送信しました。「不採用通知の送信日時」列で確認できます。');
 }
@@ -687,6 +703,11 @@ function runAction_(rec, action, callUrl, method) {
       return;
     case 'interviewReject':
       if (pushMessage_(rec.userId, [textMessage_(interviewRejectText_(rec))])) {
+        writeRecord_(REG_SHEET, rec.userId, { rejectNotifiedAt: now_() });
+      }
+      return;
+    case 'noShow':
+      if (pushMessage_(rec.userId, [textMessage_(noShowText_(rec))])) {
         writeRecord_(REG_SHEET, rec.userId, { rejectNotifiedAt: now_() });
       }
       return;

@@ -99,6 +99,14 @@ function onText_(ev, userId, text) {
     replyMessage_(ev.replyToken, [manualButton_(isStaffMenuTarget_(rec))]);
     return;
   }
+  // 面接不参加の人からのメッセージ（別日程の希望など）は担当者にメールで知らせる（同じ人は1時間に1回まで）
+  if (rec && rec.status === STATUS.NO_SHOW) {
+    var cache = CacheService.getScriptCache();
+    if (!cache.get('noshow:' + userId)) {
+      cache.put('noshow:' + userId, '1', 3600);
+      notifyAdmin_('面接不参加の方からメッセージ（別日程の希望など。トークを確認してください）', fullName_(rec));
+    }
+  }
   // 登録済みの人：「登録」「変更」で登録内容の変更フォーム（「応募」には反応しない。案件への応募のやりとりで使うため）
   // 未登録の人：「登録」「応募」「変更」で登録を始める
   if (rec ? /登録|変更/.test(text) : /登録|応募|変更/.test(text)) {
@@ -154,13 +162,15 @@ function statusText_(rec) {
     case STATUS.INTERVIEW_FIXED:
       return name + '面接日時：' + rec.interviewAt + '\n' + methodLine_(interviewMethod_()) + '\n' +
         (isMeet_(interviewMethod_())
-          ? '当日の朝と面接の時間に、「Google Meet に参加する」ボタンをお送りします。'
+          ? '当日の朝にリマインドを、面接の時間に「Google Meet に参加する」ボタンをお送りします。'
           : '当日、時間になりましたら「ビデオ通話する」ボタンをお送りします。');
     case STATUS.HIRED:
     case STATUS.DOC_REQUESTED:
       return name + '書類のご提出をお待ちしています。「書類」と送信すると提出フォームを開けます。';
     case STATUS.DOC_SUBMITTED:
       return name + '提出書類を確認中です。確認が終わり次第ご連絡します。';
+    case STATUS.NO_SHOW:
+      return name + '面接にご参加いただけなかったため、選考を終了しています。別の日程での面接をご希望の場合は、このトークでお知らせください。';
     case STATUS.WITHDRAWN:
       return name + '選考を辞退されています。もう一度ご応募いただける場合は、このトークでお知らせください。';
     case STATUS.ACTIVE:

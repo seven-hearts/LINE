@@ -28,6 +28,7 @@ var STATUS = {
   INTERVIEW_OFFERED: '面接日程調整中', // 候補日を送信済み。応募者の選択待ち
   RESCHEDULE: '日程再調整',          // 応募者が「どれも都合が合わない」を選択。担当者が個別に調整
   INTERVIEW_FIXED: '面接確定',        // 日時決定。当日9時にリマインド、時刻に通話ボタンを自動送信
+  NO_SHOW: '面接不参加',             // 面接に参加しなかった。管理者が設定 → すぐに「面接を実施できなかったため不採用（別日程の希望はトークで）」を自動送信
   HIRED: '採用',                    // 管理者が設定 → 書類提出の案内を自動送信
   DOC_REQUESTED: '書類依頼済',        // 案内を送信済み
   DOC_SUBMITTED: '書類提出済',        // 書類フォーム送信済み。管理者が内容を確認
@@ -615,7 +616,7 @@ function applySheetFont_(sh) {
 }
 
 /** 「スタッフ登録」でグレーにするステータス（選考が終わった人・やめた人） */
-var INACTIVE_STATUSES = [STATUS.DOC_FAILED, STATUS.REJECTED, STATUS.WITHDRAWN, STATUS.LEFT];
+var INACTIVE_STATUSES = [STATUS.DOC_FAILED, STATUS.REJECTED, STATUS.NO_SHOW, STATUS.WITHDRAWN, STATUS.LEFT];
 
 /** ステータス → 行をグレーにする条件付き書式の数式（2行目の形。シートが行ごとにずらして使う） */
 function inactiveRowFormula_(statusColLetter) {
