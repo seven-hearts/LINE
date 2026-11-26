@@ -1257,3 +1257,5 @@ function handleDepartureText_(ev, userId, text) {
   return answerDeparture_(ev, userId, '', m[1] === 'はい');
 }
 
+// 版の印（npm run stamp:gas で自動更新。手で変えないでください）
+var GAS_FILE_BUILDS_ = (typeof GAS_FILE_BUILDS_ === 'object' && GAS_FILE_BUILDS_) || {}; GAS_FILE_BUILDS_['JobsApp.gs'] = 'ea9ce1accc54';

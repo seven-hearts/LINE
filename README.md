@@ -125,7 +125,7 @@ LINEコールに戻すときは、スクリプト プロパティ `INTERVIEW_MET
   - 「エリアの登録人数」の行に、エリアごとの稼働可の人数を表示します。表の下に未提出のスタッフの一覧が出ます
   - 対象は、集計を作った時点でステータスが「稼働可」の人です。希望エリアやステータスを変えたときは、メニュー「セブンハーツ > シフト集計を更新（翌月分／今月分）」で作り直せます
 - 25日を待たずに送りたいとき（動作確認など）は、メニュー「セブンハーツ > シフト提出の案内を今すぐ送る（翌月分）」を使います（送信済みの人には送りません）。
-- **すでに運用中の場合の追加手順**：Apps Script に `Shift.gs` を追加して他のファイルも貼り直す → `setup` を実行（シート「シフト提出」と「スタッフ登録」の新しい列が作られます）→ 新バージョンでデプロイ。
+- **すでに運用中の場合の追加手順**：gas/ の全ファイルをまとめて反映する（「[コードを Apps Script に反映する](#コードを-apps-script-に反映する)」参照。変更のあったファイルだけを貼り直さない） → `setup` を実行（シート「シフト提出」と「スタッフ登録」の新しい列が作られます）→ 新バージョンでデプロイ。
   `setup` を実行するまでは、案内は送られません（`checkSettings` で確認できます）。
 - 案内を送る日・時刻は `gas/Shift.gs` の `SHIFT_SEND_DAY`・`SHIFT_SEND_HOUR`、エリアの並び順は `gas/Options.gs` の `areas` で変更できます。
 
@@ -228,7 +228,7 @@ LINEコールに戻すときは、スクリプト プロパティ `INTERVIEW_MET
 
 ### 使い始める（すでにスタッフ登録ツールを運用中の場合）
 
-1. Apps Script に `Jobs.gs`・`JobsApp.gs` と、HTML ファイル `JobImport`・`JobSend`・`DetailSend` を追加し、変更のあった `Code.gs`・`Sheet.gs`・`Webhook.gs`・`Interview.gs`・`Diagnostics.gs` を貼り直す
+1. gas/ の全ファイルをまとめて反映する（「[コードを Apps Script に反映する](#コードを-apps-script-に反映する)」参照。変更のあったファイルだけを貼り直さない）
 2. スクリプト プロパティに `GEMINI_API_KEY` を追加する（下の「AIの切り替え」参照）
 3. 関数 `setup` を実行する（シート「案件一覧」「案件応募」「案件取込履歴」ができます。以前の形の「案件一覧」は、今の列の形に自動で直ります：服装と持ち物・集合担当者名と連絡先を別々の列に分け、「支払い」の列を消します）
 4. 「デプロイを管理 > 鉛筆アイコン > 新バージョン」でデプロイし直す（応募ボタンを受け付けるため）
@@ -477,7 +477,7 @@ Claude に切り替えるときは、`ANTHROPIC_API_KEY` を入れて `AI_PROVID
 
 ### 使い始める（すでにスタッフ登録ツールを運用中の場合）
 
-1. Apps Script に `gas/Manual.gs`・`gas/RichMenu.gs` を同じ名前のファイルとして追加し、`Code.gs`・`Api.gs`・`Webhook.gs`・`Sheet.gs`・`Interview.gs`・`Diagnostics.gs` を貼り直す
+1. gas/ の全ファイルをまとめて反映する（「[コードを Apps Script に反映する](#コードを-apps-script-に反映する)」参照。変更のあったファイルだけを貼り直さない）
 2. 関数 `setup` を実行する（シート「マニュアル閲覧」「リッチメニュー設定」と、毎朝の集計のトリガーができます）
 3. 「デプロイを管理 > 鉛筆アイコン > バージョン：新バージョン > デプロイ」でデプロイし直す（閲覧数を受け付けるため。忘れると記録されません）
 4. スプレッドシートを開き直すと、メニュー「セブンハーツ」にマニュアルとリッチメニューの項目が増えます
@@ -583,7 +583,7 @@ Claude に切り替えるときは、`ANTHROPIC_API_KEY` を入れて `AI_PROVID
 
 ### 使い始める（最初に1回だけ）
 
-1. Apps Script に `gas/Freee.gs` を `Freee` という名前のスクリプトとして、`gas/FreeeInvoice.html` を「＋ > HTML」で `FreeeInvoice` という名前で追加し、`Code.gs`・`Jobs.gs`・`Sheet.gs`・`Interview.gs` を貼り直す
+1. gas/ の全ファイルをまとめて反映する（「[コードを Apps Script に反映する](#コードを-apps-script-に反映する)」参照。変更のあったファイルだけを貼り直さない）
 2. freee のアプリを作る：[freee アプリストアの開発者ページ](https://app.secure.freee.co.jp/developers) →「新しいアプリを作成する」
    - アプリ名は「セブンハーツ請求書」など。コールバックURLは `urn:ietf:wg:oauth:2.0:oob` のまま
    - 権限設定で、freee会計の「事業所」「取引先」の参照と、freee請求書の「請求書」の参照・更新にチェックを入れる
@@ -619,6 +619,7 @@ Claude に切り替えるときは、`ANTHROPIC_API_KEY` を入れて `AI_PROVID
 | `マニュアル原稿/` | マニュアルの元の画像（章ごとのフォルダ）。ここに入れると `.github/workflows/manual.yml` が `scripts/build-manual.js` で変換する |
 | `gas/Manual.gs`・`gas/RichMenu.gs` | マニュアルの閲覧数の記録・集計と、スタッフ用リッチメニュー |
 | `gas/Jobs.gs`・`gas/JobsApp.gs`・`gas/JobImport.html`・`gas/JobSend.html`・`gas/DetailSend.html` | 案件の取り込み（Gemini／Claude で読み取り）と LINE 配信・応募 |
+| `gas/Version.gs`・`scripts/stamp-gas.js` | Apps Script 上のファイルの版がそろっているかの検査（「コードを Apps Script に反映する」参照） |
 | `tests/` | 入力チェック、トークでのやりとり、案件の計算と配信、マニュアルの集計とリッチメニューのテスト（`npm test`） |
 
 サーバーを借りる必要はなく、LINE・Google・GitHubの無料の範囲で動きます。
@@ -645,9 +646,8 @@ Claude に切り替えるときは、`ANTHROPIC_API_KEY` を入れて `AI_PROVID
 
 1. Googleスプレッドシートを新規作成する（例：「セブンハーツ スタッフ名簿」）
 2. メニューの「拡張機能 > Apps Script」を開く
-3. `gas/` の各ファイル（`Code.gs`、`Api.gs`、`Webhook.gs`、`Sheet.gs`、`Line.gs`、`Validation.gs`、`Options.gs`、`Chat.gs`、`Interview.gs`、`Diagnostics.gs`、`Jobs.gs`、`JobsApp.gs`、`Shift.gs`、`Manual.gs`、`RichMenu.gs`、`Freee.gs`）を、同じ名前のファイルとして作成し、内容を貼り付ける
-   - `JobImport.html`・`JobSend.html`・`DetailSend.html`・`FreeeInvoice.html`・`ManualApply.html` は「＋ > HTML」で `JobImport`・`JobSend`・`DetailSend`・`FreeeInvoice`・`ManualApply`（`.html` は付けない）という名前で作成し、内容を貼り付ける
-4. 「プロジェクトの設定」で「appsscript.json マニフェスト ファイルをエディタで表示する」をオンにし、`gas/appsscript.json` の内容を貼り付ける
+3. `gas/` の全ファイル（`.gs`・`.html`・`appsscript.json`）を Apps Script に入れる。下の「[コードを Apps Script に反映する](#コードを-apps-script-に反映する)」の **clasp での一括反映（おすすめ）** で行うと、1回のコマンドで全部入ります
+4. （手で貼り付ける場合のみ）「プロジェクトの設定」で「appsscript.json マニフェスト ファイルをエディタで表示する」をオンにし、`gas/appsscript.json` の内容を貼り付ける
 5. 「プロジェクトの設定 > スクリプト プロパティ」に次の値を追加する
 
 | プロパティ | 値 |
@@ -686,7 +686,7 @@ Claude に切り替えるときは、`ANTHROPIC_API_KEY` を入れて `AI_PROVID
    - アクセスできるユーザー：**全員**
    - デプロイ後の **ウェブアプリURL**（`…/exec`）を控える
 
-> コードを変更したときは「デプロイを管理 > 編集 > バージョン：新バージョン」で更新してください（URLは変わりません）。
+> コードを変更したときは、gas/ の全ファイルを反映してから（「コードを Apps Script に反映する」）、「デプロイを管理 > 編集 > バージョン：新バージョン」で更新してください（URLは変わりません）。
 
 ### 3. Webhook を設定する
 
@@ -712,6 +712,56 @@ Claude に切り替えるときは、`ANTHROPIC_API_KEY` を入れて `AI_PROVID
 2. お名前を送り、届いたボタンからフォームを送信して、シート「スタッフ登録」に1行追加されることを確認する
 3. その行のステータスを「採用」に変えると、書類提出のボタンが届くことを確認する
 
+## コードを Apps Script に反映する
+
+`gas/` のファイルは互いの関数を呼び合っています。**変更のあったファイルだけを貼り直すと、ほかのファイルが古いまま残り**、
+`setup` などが「○○ is not defined（ReferenceError）」で止まります。コードを変えたときは、**必ず gas/ の全ファイルをまとめて**反映してください。
+
+### clasp での一括反映（おすすめ）
+
+[clasp](https://github.com/google/clasp)（Google 公式のコマンド）で、`gas/` の全ファイルを1回で Apps Script に送ります。
+Apps Script 側にしかないファイル（削除・改名した古いファイル）も消えるので、中身が GitHub と完全に同じになります。
+
+最初に1回だけ：
+
+1. パソコンに [Node.js](https://nodejs.org/ja)（LTS 版）を入れ、このリポジトリを手元に置く（`git clone`）
+2. <https://script.google.com/home/usersettings> を開き、「Google Apps Script API」を **オン** にする
+3. ターミナルでリポジトリのフォルダに移動し、`npm run gas:login` を実行 → ブラウザで Apps Script を使う Google アカウントでログインして許可する
+4. Apps Script エディタの「プロジェクトの設定（⚙）> ID > スクリプト ID」をコピーする
+5. `.clasp.json.example` をコピーして `.clasp.json` という名前で保存し、`scriptId` にスクリプト ID を貼る
+   （`.clasp.json` は会社ごと・環境ごとに違うため、GitHub には入れません。`.gitignore` 済み）
+
+コードを変えるたび：
+
+1. `git pull` で最新にする
+2. `npm run gas:push` を実行する（版の印を付けてから、`gas/` の全ファイルと `appsscript.json` を送ります）
+3. 新しいシートや列が増える変更なら、Apps Script エディタで `setup` を実行する
+4. 「デプロイ > デプロイを管理 > 鉛筆アイコン > バージョン：新バージョン > デプロイ」でデプロイし直す
+5. `checkSettings` を実行し、「全○ファイルの版がそろっています」「ウェブアプリは最新の版でデプロイされています」と出ることを確認する
+
+`npm run gas:status` で、送られるファイルの一覧を確認できます。
+
+### 手で貼り付ける場合
+
+clasp を使えないときは、Apps Script エディタで **gas/ の全ファイル** を、同じ名前のファイルに貼り直します（変更のないファイルも含めて全部）。
+
+- `.gs` ファイルは、同じ名前のスクリプトとして作成・貼り付け（例：`Code.gs`）
+- `.html` ファイルは「＋ > HTML」で、`.html` を付けない名前で作成・貼り付け（例：`JobSend`）
+- `appsscript.json` は「プロジェクトの設定」で「appsscript.json マニフェスト ファイルをエディタで表示する」をオンにして貼り付け
+- GitHub にないファイルが Apps Script に残っていたら削除する
+
+### 版がそろっているかの検査
+
+`gas/` の各ファイルの末尾には「版の印」（`.gs` は `GAS_FILE_BUILDS_[...]` の行、`.html` は `<!-- gas-build: … -->`）が付いています。
+`gas/Version.gs` には、あるべきファイルの一覧と版（`GAS_BUILD`）が入っています。
+
+- **`setup` は最初にこの検査を行い**、古いファイル・足りないファイル・不要なファイルがあると、何も変更せずにエラーで止まります。エラーに、どのファイルが古いかが書かれます
+- `checkSettings` の最初の項目でも同じ結果を表示します。検査だけをしたいときは `checkGasFiles` を実行します
+- `checkSettings` は、デプロイ済みのウェブアプリの版（`GAS_BUILD`）も比べ、新バージョンでのデプロイし忘れを見つけます
+
+**開発する人へ**：`gas/` のファイルを変えたら `npm run stamp:gas` を実行してから、その結果も含めてコミットしてください（印は全ファイルの中身から計算するため、1ファイルを変えると全ファイルの印が変わります）。
+印が古いままだと `npm test` が失敗します（GitHub でも、push と Pull Request のたびに自動でテストが動きます）。`npm run gas:push` は印を自動で付け直します。
+
 ## 運用時の注意
 
 - **シートとドライブのフォルダは、必要な担当者以外に共有しないでください。** 特に「労務情報」シートと提出書類のフォルダには、口座情報や身分証の画像が入ります。共有する場合は「スタッフ登録」シートだけを別のスプレッドシートに `IMPORTRANGE` で取り込むなどしてください。
@@ -728,5 +778,5 @@ Webhook URL・シートの列・トリガー・デプロイ済みの版を点検
 フォーム・LINE・自動送信で起きたエラーは、シート「エラーログ」に記録されます（`checkSettings` でも最近の10件を表示します）。
 フォームは、電波の途切れやGoogle側の一時的なエラーのときは自動で2回までやり直し、ログインの期限が切れたときは自動でログインし直します。
 
-**コードを貼り直したら、必ず「デプロイを管理 > 鉛筆アイコン > 新バージョン」でデプロイし直してください。**
+**コードを反映したら、必ず「デプロイを管理 > 鉛筆アイコン > 新バージョン」でデプロイし直してください。**
 フォームの画面（GitHub Pages）は自動で新しくなるため、デプロイし忘れると画面と Apps Script の項目が食い違い、登録がシートに保存されません。

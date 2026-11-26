@@ -4,7 +4,11 @@
   "scripts": {
     "test": "node --test tests/*.test.js",
     "build:options": "node scripts/build-options.js",
-    "build:manual": "node scripts/build-manual.js"
+    "build:manual": "node scripts/build-manual.js",
+    "stamp:gas": "node scripts/stamp-gas.js",
+    "gas:login": "npx -y @google/clasp@2.4.2 login",
+    "gas:push": "node scripts/stamp-gas.js && npx -y @google/clasp@2.4.2 push --force",
+    "gas:status": "npx -y @google/clasp@2.4.2 status"
   },
   "devDependencies": {
     "sharp": "^0.35.5"

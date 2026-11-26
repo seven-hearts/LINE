@@ -9,6 +9,15 @@ function checkSettings() {
   function ng(msg) { lines.push('❌ ' + msg); }
   function warn(msg) { lines.push('⚠️ ' + msg); }
 
+  // 0. Apps Script 上のファイルの版がそろっているか（Version.gs）
+  if (typeof gasFileStatus_ !== 'function') {
+    ng('Version.gs がありません。gas/ の全ファイルをまとめて反映してください（README「コードを Apps Script に反映する」）');
+  } else {
+    var files = gasFileStatus_();
+    if (!files.problems.length) ok('全' + files.ok.length + 'ファイルの版がそろっています（版 ' + files.build + '）');
+    else files.problems.forEach(function (p) { ng('ファイルの版がそろっていません：' + p + '。gas/ の全ファイルをまとめて反映してください'); });
+  }
+
   // 1. スクリプト プロパティ
   ['CHANNEL_ACCESS_TOKEN', 'LOGIN_CHANNEL_ID', 'LIFF_ID', 'WEBHOOK_TOKEN', 'SPREADSHEET_ID', 'DRIVE_FOLDER_ID'].forEach(function (k) {
     var v = props[k];
@@ -169,16 +178,26 @@ function checkSettings() {
     warn('ウェブアプリの版を自動で確認するには、スクリプト プロパティ WEBAPP_URL にウェブアプリのURL（/exec で終わるもの）を入れてください');
   } else {
     var deployed = null;
+    var deployedBuild = '';
     var reason = '';
     try {
       var res = UrlFetchApp.fetch(appUrl, { muteHttpExceptions: true, followRedirects: true });
       if (res.getResponseCode() !== 200) reason = 'HTTP ' + res.getResponseCode();
-      else deployed = JSON.parse(res.getContentText()).version || 'なし（古い版）';
+      else {
+        var appInfo = JSON.parse(res.getContentText());
+        deployed = appInfo.version || 'なし（古い版）';
+        deployedBuild = appInfo.build || '';
+      }
     } catch (err) {
       reason = err.message;
     }
-    if (deployed === APP_VERSION) {
-      ok('ウェブアプリは最新の版でデプロイされています（' + APP_VERSION + '）');
+    var currentBuild = typeof GAS_BUILD === 'string' ? GAS_BUILD : '';
+    if (deployed && currentBuild && deployedBuild !== currentBuild) {
+      // APP_VERSION の更新し忘れでも見つけられるよう、ファイルの版（GAS_BUILD）でも比べる
+      ng('ウェブアプリが古い版のままです（デプロイ済み：' + (deployedBuild || deployed) + '／最新：' + currentBuild + '）。' +
+        '「デプロイ > デプロイを管理 > 鉛筆アイコン > バージョン：新バージョン > デプロイ」を行ってください');
+    } else if (deployed === APP_VERSION) {
+      ok('ウェブアプリは最新の版でデプロイされています（' + APP_VERSION + (currentBuild ? '／' + currentBuild : '') + '）');
     } else if (deployed) {
       ng('ウェブアプリが古い版のままです（デプロイ済み：' + deployed + '／最新：' + APP_VERSION + '）。' +
         '「デプロイ > デプロイを管理 > 鉛筆アイコン > バージョン：新バージョン > デプロイ」を行ってください');
@@ -225,3 +244,6 @@ function checkSettings() {
   lines.push('・Apps Script 左の「実行数」に doPost の記録とエラーがあるか');
   console.log(lines.join('\n'));
 }
+
+// 版の印（npm run stamp:gas で自動更新。手で変えないでください）
+var GAS_FILE_BUILDS_ = (typeof GAS_FILE_BUILDS_ === 'object' && GAS_FILE_BUILDS_) || {}; GAS_FILE_BUILDS_['Diagnostics.gs'] = 'ea9ce1accc54';

@@ -101,7 +101,8 @@ function doPost(e) {
 var APP_VERSION = '2026-11-02.1';
 
 function doGet() {
-  return json_({ ok: true, service: 'sevenhearts-staff-registration', version: APP_VERSION });
+  return json_({ ok: true, service: 'sevenhearts-staff-registration', version: APP_VERSION,
+    build: typeof GAS_BUILD === 'string' ? GAS_BUILD : '' });
 }
 
 /** 新しい登録・書類提出を管理者にメールで知らせる（個人情報は本文に含めない） */
@@ -124,6 +125,11 @@ function notifyAdmin_(subject, name) {
  * - Google カレンダーの権限の確認（面接日時を登録するため）
  */
 function setup() {
+  // 一部のファイルだけ古いまま残っていると途中で止まるため、最初に全ファイルの版がそろっているかを確かめる（Version.gs）
+  if (typeof assertGasFilesMatch_ !== 'function') {
+    throw new Error('Version.gs がありません。gas/ の全ファイルをまとめて反映してから、もう一度実行してください（README「コードを Apps Script に反映する」）');
+  }
+  assertGasFilesMatch_();
   var props = PropertiesService.getScriptProperties();
 
   var ss = props.getProperty('SPREADSHEET_ID')
@@ -251,3 +257,6 @@ function onStatusEdit(e) {
     }
   });
 }
+
+// 版の印（npm run stamp:gas で自動更新。手で変えないでください）
+var GAS_FILE_BUILDS_ = (typeof GAS_FILE_BUILDS_ === 'object' && GAS_FILE_BUILDS_) || {}; GAS_FILE_BUILDS_['Code.gs'] = 'ea9ce1accc54';
